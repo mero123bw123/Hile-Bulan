@@ -1,8 +1,8 @@
-# Calistirma: irm https://raw.githubusercontent.com/mero123bw123/Hile-K-ran/refs/heads/main/HileKiran.ps1 | iex
+# Calistirma: irm https://raw.githubusercontent.com/mero123bw123/Hile-Bulan/refs/heads/main/HileKiran.ps1 | iex
 # (param() blogu iex ile calismadigi icin kullanilmaz; -Av bayragi $args ile, iex modunda ise soru ile secilir)
 $ErrorActionPreference = 'SilentlyContinue'
 $ProgressPreference = 'SilentlyContinue'
-$script:SelfUrl = 'https://raw.githubusercontent.com/mero123bw123/Hile-K-ran/refs/heads/main/HileKiran.ps1'
+$script:SelfUrl = 'https://raw.githubusercontent.com/mero123bw123/Hile-Bulan/refs/heads/main/HileKiran.ps1'
 $Av = (@($args) -contains '-Av')
 $hkModeSet = $Av
 if (-not $hkModeSet -and $env:HK_AV -eq '1') { $Av = $true; $hkModeSet = $true }
@@ -55,15 +55,16 @@ public static class HkCon {
 '@ -Language CSharp -ErrorAction Stop
     [HkCon]::NoQuickEdit()
 } catch {}
-try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = [Diagnostics.ProcessPriorityClass]::AboveNormal } catch {}
+try { [Diagnostics.Process]::GetCurrentProcess().PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 try { $Host.UI.RawUI.WindowTitle = 'HileKiran' } catch {}
 Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
 
 # =====================================================================
-# HileKiran - bu bilgisayardaki hile izlerini arar. Hicbir veri disari gonderilmez,
+# HileKiran - bu bilgisayardaki hile izlerini arar. Hicbir dosya icerigi disari gonderilmez (mod hash sorgusu haric, bkz. asagi),
 # hicbir dosya silinmez/degistirilmez. Sadece okur ve rapor yazar (process bellegi de sadece OKUNUR).
+# Tek istisna: 10. adimda mod dosyalarinin SHA1 hash i Modrinth/Megabase te sorgulanir (icerik gonderilmez; kapatmak icin HK_NONET=1).
 # =====================================================================
 
 $script:Rep = New-Object System.Collections.Generic.List[string]
@@ -109,7 +110,7 @@ using System;
 using System.Threading;
 public static class HkTitle {
     public static int Idx = 0;
-    public static int Total = 37;
+    public static int Total = 38;
     public static double Frac = 0;
     public static string Name = "";
     public static string Sub = "";
@@ -143,8 +144,37 @@ try {
     [HkTitle]::Start()
     $script:TitleOk = $true
 } catch {}
+# ---- Konsol ilerleme cubugu (Write-Progress): ust satirda adim ici %, altinda genel % ----
+$script:BarLast = [DateTime]::MinValue
+function Update-Bar([double]$frac, [string]$sub = '', [bool]$force = $false) {
+    $ProgressPreference = 'Continue'
+    if (-not $script:TitleOk) { return }
+    $now = Get-Date
+    if (-not $force -and ($now - $script:BarLast).TotalMilliseconds -lt 300) { return }
+    $script:BarLast = $now
+    if ($frac -lt 0) { $frac = 0 }
+    if ($frac -gt 1) { $frac = 1 }
+    $idx = [HkTitle]::Idx
+    $tot = [HkTitle]::Total
+    $all = [int]((([Math]::Max(0, $idx - 1)) + $frac) / $tot * 100)
+    if ($all -gt 99) { $all = 99 }
+    $stp = [int]($frac * 100)
+    $nm = [string][HkTitle]::Name
+    $b = $nm.IndexOf(']')
+    if ($b -gt 0 -and $b -lt $nm.Length - 1) { $nm = $nm.Substring($b + 1).Trim() }
+    if ($nm.Length -gt 60) { $nm = $nm.Substring(0, 60) }
+    $st = '%' + $stp
+    if ($sub) { $st = '[' + $sub + ']  %' + $stp }
+    Write-Progress -Id 0 -Activity ('HileKiran genel ilerleme: %' + $all) -Status ('adim ' + $idx + '/' + $tot) -PercentComplete $all
+    Write-Progress -Id 1 -ParentId 0 -Activity $nm -Status $st -PercentComplete $stp
+}
+function Close-Bar {
+    $ProgressPreference = 'Continue'
+    Write-Progress -Id 1 -Activity ' ' -Completed
+    Write-Progress -Id 0 -Activity ' ' -Completed
+}
 function Set-Frac([double]$f, [string]$sub = '') {
-    if ($script:TitleOk) { [HkTitle]::Frac = $f; if ($sub) { [HkTitle]::Sub = $sub } }
+    if ($script:TitleOk) { [HkTitle]::Frac = $f; if ($sub) { [HkTitle]::Sub = $sub }; Update-Bar $f $sub }
 }
 function Step([string]$t) {
     $now = Get-Date
@@ -163,6 +193,7 @@ function Step([string]$t) {
         [HkTitle]::Name = $t
         $pct = [int](([HkTitle]::Idx - 1) / [HkTitle]::Total * 100)
         if ($pct -gt 99) { $pct = 99 }
+        Update-Bar 0 '' $true
     }
     Log '' 'Gray'
     Log ($t + '   [genel %' + $pct + ']') 'Cyan'
@@ -740,7 +771,7 @@ function Inspect-Jar([string]$p) {
 function Inspect-File($f) {
     $script:fileCount++
     if (($script:fileCount % 3000) -eq 0) { Write-Host -NoNewline '.' -ForegroundColor DarkGray }
-    if (($script:fileCount % 500) -eq 0 -and $script:TitleOk) { [HkTitle]::Sub = ($script:fileCount.ToString() + ' dosya'); if ([HkTitle]::Frac -lt 0.9) { [HkTitle]::Frac = [Math]::Min(0.9, $script:fileCount / 200000.0) } }
+    if (($script:fileCount % 500) -eq 0 -and $script:TitleOk) { [HkTitle]::Sub = ($script:fileCount.ToString() + ' dosya'); if ([HkTitle]::Frac -lt 0.9) { [HkTitle]::Frac = [Math]::Min(0.9, $script:fileCount / 200000.0) }; Update-Bar ([HkTitle]::Frac) ($script:fileCount.ToString() + ' dosya') }
     $name = $f.Name
     $ext = $f.Extension.ToLower()
     $path = $f.FullName
@@ -925,17 +956,52 @@ function Test-UsnDelete([string]$ln) {
 }
 # USN gunlugu her surucu icin sadece BIR kez okunur (eskiden 3 ayri tam gecis vardi); sonuc bellekte tutulur
 $script:UsnRawCache = @{}
-function Get-UsnRaw([string]$dl) {
+$script:UsnBg = @{}
+function Stop-UsnBg([string]$dl) {
     $k = $dl.ToUpper()
-    if ($script:UsnRawCache.ContainsKey($k)) { return ,$script:UsnRawCache[$k] }
+    if (-not $script:UsnBg.ContainsKey($k)) { return }
+    $bg = $script:UsnBg[$k]
+    $script:UsnBg.Remove($k)
+    try { if (-not $bg.Proc.HasExited) { $bg.Proc.Kill() } } catch {}
+    Start-Sleep -Milliseconds 200
+    Remove-Item -LiteralPath $bg.Cmd -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $bg.Out -Force -ErrorAction SilentlyContinue
+}
+# USN gunlugu okumasi (fsutil, dakikalar surebilir) diger adimlarla ayni anda arka planda baslatilir; sonuc Get-UsnRaw ile beklenip okunur
+function Start-UsnBg([string]$dl) {
+    $k = $dl.ToUpper()
+    if ($script:UsnBg.ContainsKey($k) -or $script:UsnRawCache.ContainsKey($k)) { return }
     $id = [guid]::NewGuid().ToString('N')
     $tmpCmd = Join-Path $env:TEMP ('hk_usn_' + $id + '.cmd')
     $tmpOut = Join-Path $env:TEMP ('hk_usn_' + $id + '.txt')
     $cmdText = "@echo off`r`nfsutil usn readjournal " + $dl + " csv | findstr /i /c:`".exe`" /c:`".jar`" /c:`".rar`" /c:`".zip`" /c:`".7z`" /c:`".dll`" /c:`".bat`" /c:`".ps1`" /c:`".pf`" /c:`"`$I`" /c:`"ConsoleHost_history`" /c:`"JavaLauncher`" > `"" + $tmpOut + "`"`r`n"
     try {
         Set-Content -LiteralPath $tmpCmd -Value $cmdText -Encoding ASCII
-        & $tmpCmd | Out-Null
-    } catch {}
+        $pr = Start-Process -FilePath 'cmd.exe' -ArgumentList ('/c "' + $tmpCmd + '"') -WindowStyle Hidden -PassThru -ErrorAction Stop
+        if ($pr) { $script:UsnBg[$k] = @{ Proc = $pr; Cmd = $tmpCmd; Out = $tmpOut } }
+    } catch { Remove-Item -LiteralPath $tmpCmd -Force -ErrorAction SilentlyContinue }
+}
+function Get-UsnRaw([string]$dl) {
+    $k = $dl.ToUpper()
+    if ($script:UsnRawCache.ContainsKey($k)) { return ,$script:UsnRawCache[$k] }
+    $tmpCmd = $null
+    $tmpOut = $null
+    if ($script:UsnBg.ContainsKey($k)) {
+        $bg = $script:UsnBg[$k]
+        $script:UsnBg.Remove($k)
+        try { $bg.Proc.WaitForExit() } catch {}
+        $tmpCmd = $bg.Cmd
+        $tmpOut = $bg.Out
+    } else {
+        $id = [guid]::NewGuid().ToString('N')
+        $tmpCmd = Join-Path $env:TEMP ('hk_usn_' + $id + '.cmd')
+        $tmpOut = Join-Path $env:TEMP ('hk_usn_' + $id + '.txt')
+        $cmdText = "@echo off`r`nfsutil usn readjournal " + $dl + " csv | findstr /i /c:`".exe`" /c:`".jar`" /c:`".rar`" /c:`".zip`" /c:`".7z`" /c:`".dll`" /c:`".bat`" /c:`".ps1`" /c:`".pf`" /c:`"`$I`" /c:`"ConsoleHost_history`" /c:`"JavaLauncher`" > `"" + $tmpOut + "`"`r`n"
+        try {
+            Set-Content -LiteralPath $tmpCmd -Value $cmdText -Encoding ASCII
+            & $tmpCmd | Out-Null
+        } catch {}
+    }
     $lines = @()
     if (Test-Path -LiteralPath $tmpOut) { try { $lines = [IO.File]::ReadAllLines($tmpOut, [Text.Encoding]::Default) } catch { $lines = @(Get-Content -LiteralPath $tmpOut -ErrorAction SilentlyContinue) } }
     Remove-Item -LiteralPath $tmpCmd -Force -ErrorAction SilentlyContinue
@@ -1159,7 +1225,9 @@ function Show-Finding($x) {
     $col = 'Yellow'
     if ($x.Skor -ge 60) { $col = 'Red' }
     Log '' 'Gray'
-    Log ('   [%' + $x.Skor + ' hile ihtimali] ' + $x.Ad) $col
+    $vtxt = ''
+    if ($x.Skor -lt 60) { $vtxt = ' - tek basina kanit degil, DOGRULA' }
+    Log ('   [%' + $x.Skor + ' hile ihtimali' + $vtxt + '] ' + $x.Ad) $col
     Log ('      Konum            : ' + $x.Yol) 'Gray'
     $durum = 'DURUYOR'
     if ($x.Var -eq 'Hayir') {
@@ -1191,8 +1259,15 @@ function Show-Section {
     $sel = @($items | Where-Object { $_.Skor -ge 30 -and -not $_.Benign } | Sort-Object -Property @{ Expression = 'Skor'; Descending = $true }, @{ Expression = 'Son'; Descending = $true })
     $rest = $items.Count - $sel.Count
     if ($sel.Count -eq 0) { Log '   -> supheli bulgu yok' 'Green' }
-    foreach ($x in ($sel | Select-Object -First 15)) { Show-Finding $x }
-    if ($sel.Count -gt 15) { Log ('   ... +' + ($sel.Count - 15) + ' bulgu daha (sonda TAM LISTE bolumunde)') 'DarkGray' }
+    $shownKeys = @{}
+    $dupN = 0
+    foreach ($x in $sel) {
+        $dk = (([string]$x.Ad) + '|' + ([string]$x.Yol)).ToLower()
+        if ($shownKeys.ContainsKey($dk)) { $dupN++; continue }
+        $shownKeys[$dk] = 1
+        Show-Finding $x
+    }
+    if ($dupN -gt 0) { Log ('   (' + $dupN + ' ayni bulgu tekrar kaydi gizlendi)') 'DarkGray' }
     if ($rest -gt 0) { Log ('   (' + $rest + ' dusuk guvenli kayit daha - sonda TAM LISTE bolumunde)') 'DarkGray' }
 }
 
@@ -1219,7 +1294,7 @@ Log ('  Baslangic: ' + (Get-Date)) 'Green'
 Log '  Not: Sadece bu bilgisayarda calisir, veri gondermez, hicbir seyi silmez.' 'DarkGray'
 Log '===================================================================' 'Green'
 if ($PSVersionTable.PSVersion.Major -lt 5) { Log 'UYARI: PowerShell 5+ gerekli, bazi kontroller calismayabilir.' 'Yellow' }
-if (-not $script:HkOk) { Log 'UYARI: yardimci modul derlenemedi; Prefetch saatleri/USB/BAM yol cozumu kisitli olabilir.' 'Yellow' }
+if (-not $script:HkOk) { Log 'UYARI: yardimci modul derlenemedi; Prefetch saatleri/USB/BAM yol cozumu kisitli olabilir.' 'Yellow' } else { Log 'Yardimci modul (Prefetch/USN/ADS cozumleyici): hazir.' 'DarkGray' }
 
 # =====================================================================
 # HILE AVI MODU ve paylasilan yardimcilar (adimlardan once tanimlanir)
@@ -1561,7 +1636,7 @@ function Add-HistVals($val, $list) {
     }
 }
 function Invoke-NameDeep {
-Step '[16+/16] V) OZEL TARAMA: adi bilinen bir hile istemcisiyle eslesen dosyalarin icerigi (sure siniri yok)...'
+Step '[17+/17] V) OZEL TARAMA: adi bilinen bir hile istemcisiyle eslesen dosyalarin icerigi (sure siniri yok)...'
 Start-Sec
 $vList = @($script:NameDeep)
 Log ('   isim eslesen ' + $vList.Count + ' dosya ozel taramaya alindi.') 'DarkGray'
@@ -1874,7 +1949,7 @@ public static class HkHunt {
     $arcSorted = @($arcAll | Sort-Object @{ Expression = { if ($_.FullName -match '(?i)\\Users\\') { 0 } else { 1 } } }, Length | Select-Object -First 1000000)
     Log ('   ' + $arcAll.Count + ' jar/zip bulundu, ' + $arcSorted.Count + ' tanesi taranacak.') 'DarkGray'
     if ($script:jarCsOk) {
-        $thr = [Math]::Max(2, [Math]::Min(8, [Environment]::ProcessorCount))
+        $thr = [Math]::Max(2, [Math]::Min(4, [Math]::Max(2, [int]([Environment]::ProcessorCount / 2))))
         $chN = 0
         for ($ci = 0; $ci -lt $arcSorted.Count; $ci += 24) {
             Set-Frac ($ci / [Math]::Max(1, $arcSorted.Count)) ('jar/zip ' + $ci + '/' + $arcSorted.Count)
@@ -2028,6 +2103,7 @@ public static class HkHunt {
     Log '' 'Gray'
     Show-ObfSummary
     Log ('HILE AVI bitti: ' + [int]$hSw.Elapsed.TotalSeconds + ' sn.') 'Cyan'
+    Close-Bar
     if ($script:TitleOk -and $Av) { [HkTitle]::Done = $true; [HkTitle]::Tick() }
 }
 if ($Av) {
@@ -2037,8 +2113,11 @@ if ($Av) {
     return
 }
 
+# USN gunlugu okumalari simdi arka planda baslar (adim 2 sonucu bekler)
+foreach ($ubDl in $script:FixedNtfs) { Start-UsnBg $ubDl }
+
 # ---------------------------------------------------------------------
-Step '[1/16] BYPASS TESPITI - iz saklama/temizleme, servis ve ayar durumlari...'
+Step '[1/17] BYPASS TESPITI - iz saklama/temizleme, servis ve ayar durumlari...'
 Start-Sec
 $pfDir = $env:WINDIR + '\Prefetch'
 $pfFiles = @()
@@ -2212,7 +2291,7 @@ foreach ($pair in @(@('LGHUB', ($env:LOCALAPPDATA + '\LGHUB')), @('Razer Synapse
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[2/16] Geri donusum kutusu ve USN gunlugu (silinen dosyalar, silinme zamanlari)...'
+Step '[2/17] Geri donusum kutusu ve USN gunlugu (silinen dosyalar, silinme zamanlari)...'
 Start-Sec
 foreach ($dl in $script:Drives) {
     $bin = $dl + '\$Recycle.Bin'
@@ -2266,6 +2345,7 @@ foreach ($dl in $script:Drives) {
 foreach ($dl in $script:FixedNtfs) {
     & fsutil usn queryjournal $dl 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
+        Stop-UsnBg $dl
         Add-Sys ('USN gunlugu YOK/silinmis: ' + $dl) 45 'USN gunlugu dosya silme/degistirme kayitlarini tutar; silinmis olmasi iz temizleme girisimi olabilir (fsutil usn deletejournal).'
         continue
     }
@@ -2292,7 +2372,7 @@ if ($script:DeletedPf.Count -gt 0) {
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[3/16] Calisan process, Java komut satiri, overlay pencereleri...'
+Step '[3/17] Calisan process, Java komut satiri, overlay pencereleri...'
 Start-Sec
 $procs = @(Get-CimInstance Win32_Process)
 $SysNames = @('svchost', 'csrss', 'lsass', 'winlogon', 'services', 'smss', 'wininit', 'explorer', 'dllhost', 'conhost', 'taskhostw', 'sihost', 'RuntimeBroker', 'fontdrvhost', 'spoolsv', 'ctfmon', 'audiodg', 'dwm')
@@ -2396,7 +2476,7 @@ if ($script:HkOk) {
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[4/16] Prefetch: calistirilan programlar ve calisma saatleri...'
+Step '[4/17] Prefetch: calistirilan programlar ve calisma saatleri...'
 Start-Sec
 $pfCount = 0
 foreach ($pf in $pfFiles) {
@@ -2430,7 +2510,7 @@ Log ('   ' + $pfCount + ' Prefetch kaydi incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[5/16] BAM: programlarin son calistirma zamani (kayit defteri)...'
+Step '[5/17] BAM: programlarin son calistirma zamani (kayit defteri)...'
 Start-Sec
 $bamCount = 0
 foreach ($root in @('HKLM:\SYSTEM\CurrentControlSet\Services\bam\State\UserSettings', 'HKLM:\SYSTEM\CurrentControlSet\Services\bam\UserSettings')) {
@@ -2452,7 +2532,7 @@ Log ('   ' + $bamCount + ' BAM kaydi incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[6/16] UserAssist: calistirma sayisi ve zamani...'
+Step '[6/17] UserAssist: calistirma sayisi ve zamani...'
 Start-Sec
 $KnownFolders = @{
     '{374DE290-123F-4565-9164-39C4925E467B}' = ($UP + '\Downloads')
@@ -2493,7 +2573,7 @@ Log ('   ' + $uaCount + ' UserAssist kaydi incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[7/16] Amcache: program envanteri (silinmis programlarin izi)...'
+Step '[7/17] Amcache: program envanteri (silinmis programlarin izi)...'
 $amCount = 0
 $amReason = ''
 $amDir = Join-Path $env:TEMP ('hk_amc_' + [guid]::NewGuid().ToString('N'))
@@ -2556,7 +2636,7 @@ if ($amCount -eq 0) {
 }
 
 # ---------------------------------------------------------------------
-Step '[8/16] Shimcache (AppCompatCache) yol taramasi...'
+Step '[8/17] Shimcache (AppCompatCache) yol taramasi...'
 Start-Sec
 $shCount = 0
 try {
@@ -2583,7 +2663,7 @@ Log ('   ' + $shCount + ' Shimcache yolu incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[9/16] Recent (son kullanilanlar) ve Jump List kayitlari...'
+Step '[9/17] Recent (son kullanilanlar) ve Jump List kayitlari...'
 Start-Sec
 $recentDir = Join-Path $env:APPDATA 'Microsoft\Windows\Recent'
 $lnks = @(Get-ChildItem -LiteralPath $recentDir -Filter '*.lnk' -Force -ErrorAction SilentlyContinue)
@@ -2640,8 +2720,1089 @@ foreach ($jd in @((Join-Path $recentDir 'AutomaticDestinations'), (Join-Path $re
 Log ('   ' + $jlCount + ' Jump List yolu incelendi.') 'DarkGray'
 Show-Section
 
+# =====================================================================
+# MOD KLASORU ANALIZI (Meow Mod Analyzer mantigi, HileKiran yapisina uyarlandi)
+# Sadece OKUR. Tek ag kullanimi: mod dosyasinin SHA1 hash i Modrinth/Megabase te aranir (HK_NONET=1 ile kapatilir).
+# =====================================================================
+Step '[10/17] MOD KLASORU ANALIZI: .jar modlarin hash dogrulamasi, hile stringleri, bypass/enjeksiyon, obfuscation, JVM agent...'
+Start-Sec
+
+function ConvertTo-Fw([string]$s) {
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($ch in $s.ToCharArray()) {
+        $c = [int]$ch
+        if (($c -ge 48 -and $c -le 57) -or ($c -ge 65 -and $c -le 90) -or ($c -ge 97 -and $c -le 122)) { [void]$sb.Append([char]($c + 0xFEE0)) }
+        elseif ($c -eq 45) { [void]$sb.Append([char]0xFF0D) }
+        elseif ($c -eq 44) { [void]$sb.Append([char]0xFF0C) }
+        else { [void]$sb.Append($ch) }
+    }
+    return $sb.ToString()
+}
+
+$script:MmNet = ($env:HK_NONET -ne '1')
+$script:MmFails = 0
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
+
+# ---- desen listesi (entry adlari + class icerigi; regex, buyuk/kucuk harf duyarli) ----
+$mmPatList = @(
+    'AimAssist','AnchorTweaks','AutoAnchor','AutoCrystal','AutoDoubleHand','JDWP.VirtualMachine.AllModules',
+    'AutoHitCrystal','AutoPot','AutoTotem','AutoArmor','InventoryTotem','LegitTotem','PingSpoof','SelfDestruct',
+    'ShieldBreaker','TriggerBot','AxeSpam','WebMacro','FastPlace','WalskyOptimizer','WalksyOptimizer','walsky.optimizer',
+    'WalksyCrystalOptimizerMod','Donut','Replace Mod','ShieldDisabler','SilentAim','Totem Hit','Wtap','FakeLag','dev.virel','orchard',
+    'BlockESP','dev.krypton','dev/krypton','skid.krypton','skid/krypton','AntiMissClick','LagReach','PopSwitch','SprintReset',
+    'ChestSteal','AntiBot','ElytraSwap','FastXP','FastExp','Refill','AirAnchor','jnativehook','FakeInv','HoverTotem',
+    'AutoClicker','AutoFirework','PackSpoof','Antiknockback','catlean','AuthBypass','Asteria','Prestige','AutoEat','AutoMine',
+    'MaceSwap','Macro198','StunSlam','SafeAnchor','DoubleAnchor','AutoTPA','BaseFinder','Xenon','gypsy','AutoPotRefill',
+    'KeyPearl','AutoNethPot','AutoDtap','AutoWeb','AnchorAction',
+    'org.chainlibs.module.impl.modules.Crystal.Y','org.chainlibs.module.impl.modules.Crystal.bF','org.chainlibs.module.impl.modules.Crystal.bM',
+    'org.chainlibs.module.impl.modules.Crystal.bY','org.chainlibs.module.impl.modules.Crystal.bq','org.chainlibs.module.impl.modules.Crystal.cv',
+    'org.chainlibs.module.impl.modules.Crystal.o','org.chainlibs.module.impl.modules.Blatant.I','org.chainlibs.module.impl.modules.Blatant.bR',
+    'org.chainlibs.module.impl.modules.Blatant.bx','org.chainlibs.module.impl.modules.Blatant.cj','org.chainlibs.module.impl.modules.Blatant.dk',
+    'imgui.gl3','imgui.glfw','BowAim','Criticals','Fakenick','FakeItem','invsee','ItemExploit','Hellion','hellion',
+    'LicenseCheckMixin','ClientPlayerInteractionManagerAccessor','ClientPlayerEntityMixim','dev.gambleclient','obfuscatedAuth',
+    'phantom-refmap.json','xyz.greaj',
+    'HighStep','WaterWalk','LiquidWalk','LavaWalk','NoSlow','NoSlowdown','NoWeb','NoSoulSand','WallHack','ElytraSpeed','InstantElytra',
+    'ScaffoldWalk','FastBridge','BuildHelper','AutoBridge','Nuker','NukerLegit','InstantBreak',
+    'GhostHand','NoSwing','PlaceAssist','AirPlace','AutoPlace','InstantPlace',
+    'PlayerESP','MobESP','ItemESP','StorageESP','ChestESP','Tracers','NameTagsHack','XRayHack','OreFinder','CaveFinder','OreESP',
+    'NewChunks','ChunkBorders','TunnelFinder','TargetHUD','ReachDisplay','DoubleClicker','JitterClick','ButterflyClick','CPSBoost',
+    'ChestStealer','InvManager','InvMovebypass','AutoSprint','AntiAFK','AutoRespawn',
+    'FakeLatency','FakePing','SpoofRotation','PositionSpoof','GameSpeed','SpeedTimer','GrimBypass','VulcanBypass','MatrixBypass',
+    'AACBypass','VerusDisabler','IntaveBypass','WatchdogBypass',
+    'PacketMine','PacketWalk','PacketSneak','PacketCancel','PacketDupe','PacketSpam',
+    'HideClient','SessionStealer','TokenLogger','TokenGrabber','DiscordToken','RemoteAccess','ReverseShell','C2Server','Backdoor','KeyLogger',
+    'StashFinder','TrailFinder','imgui.binding','JNativeHook','GlobalScreen','NativeKeyListener','client-refmap.json','cheat-refmap.json',
+    'aHR0cDovL2FwaS5ub3ZhY2xpZW50LmxvbC93ZWJob29rLnR4dA==',
+    'meteordevelopment','cc/novoline','com/alan/clients','club/maxstats','wtf/moonlight','me/zeroeightsix/kami','net/ccbluex','today/opai',
+    'net/minecraft/injection','org/chainlibs/module/impl/modules','xyz/greaj','com/cheatbreaker','com/moonsworth',
+    'doomsdayclient','DoomsdayClient','doomsday.jar','novaclient','api.novaclient.lol','LWFH Crystal',
+    'vape.gg','vapeclient','VapeClient','VapeLite','intent.store','IntentClient','rise.today','riseclient.com',
+    'meteor-client','meteorclient','meteordevelopment.meteorclient','liquidbounce','fdp-client','net.ccbluex','novoware','novoclient',
+    'aristois','impactclient','azura','pandaware','skilled','moonClient','astolfo','futureClient','konas','rusherhack','inertia','exhibition',
+    'VirginClient','virgin client','CatleanClient','catlean client','ArgonClient','argon client','AsteriaClient','asteria client',
+    'PrestigeClient','prestige client','prestigeclient.vip','GypsyClient','gypsy client','XenonClient','xenon client',
+    'GrimClient','grim client','dqrkis.xyz','Dqrkis Client'
+)
+# Japonca sinif adi obfuscation izleri (script ASCII kalsin diye kod noktasindan uretilir)
+foreach ($cp in @(0x3058,0x3075,0x3076,0x3077,0x305F,0x306D,0x305D,0x306A,0x3069,0x3050,0x305A,0x3067,0x3064,0x3079,0x305B,0x3068,0x307F,0x3073,0x3059,0x306E)) {
+    $mmPatList += (([string][char]$cp) + '.class')
+}
+$mmPatSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+foreach ($p in $mmPatList) { if ($p) { [void]$mmPatSet.Add($p) } }
+$mmPatSorted = @($mmPatSet | Sort-Object -Property { $_.Length } -Descending)
+$mmPatAlt = ($mmPatSorted | ForEach-Object { [regex]::Escape($_) }) -join '|'
+$script:MmPatRx = New-Object System.Text.RegularExpressions.Regex -ArgumentList ('(?<![A-Za-z])(' + $mmPatAlt + ')(?![A-Za-z])'), ([System.Text.RegularExpressions.RegexOptions]::None)
+
+# ---- class icerigi stringleri: hem duz hem tam genislikli (fullwidth) halleri aranir ----
+$mmBoth = @(
+    'AutoCrystal','Auto Crystal','AutoHitCrystal','AutoAnchor','Auto Anchor','DoubleAnchor','Double Anchor','SafeAnchor','Safe Anchor','Anchor Macro',
+    'AutoTotem','Auto Totem','HoverTotem','Hover Totem','InventoryTotem','Auto Inventory Totem','Auto Totem Hit','AutoPot','Auto Pot','Auto Pot Refill',
+    'AutoArmor','Auto Armor','ShieldDisabler','Shield Disabler','AutoDoubleHand','Auto Double Hand','AutoClicker','AutoMace','Auto Mace',
+    'MaceSwap','Mace Swap','Spear Swap','Stun Slam','AimAssist','Aim Assist','TriggerBot','Trigger Bot','Silent Rotations','FakeLag','Fake Lag',
+    'Fake Punch','Anti Web','AutoWeb','Walksy Optimizer','ElytraSwap','Elytra Swap','KeyPearl','Key Pearl','Loot Yeeter','Fast Place','Auto Breach',
+    'Freecam','No Clip','Freeze Player','LWFH Crystal'
+)
+# Cok genel ayar adlari: sadece tam genislikli (obfuscate/gizlenmis) halleri aranir, duz halleri mesru modlarda cok gectigi icin atlanir
+$mmFwOnly = @(
+    'Click Simulation','On RMB','No Count Glitch','No Bounce','NoBounce','Place Delay','Break Delay','Fast Mode','Place Chance','Break Chance',
+    'Stop On Kill','Damage Tick','Anti Weakness','Particle Chance','Trigger Key','Switch Delay','Totem Slot','Smooth Rotations','Rotation Speed',
+    'Use Easing','Easing Strength','While Use','Glowstone Delay','Glowstone Chance','Explode Delay','Explode Chance','Explode Slot','Only Charge',
+    'Reach Distance','Min Height','Min Fall Speed','Attack Delay','Breach Delay','Require Elytra','Auto Switch Back','Check Line of Sight',
+    'Only When Falling','Require Crit','Show Status Display','Stop On Crystal','Check Shield','On Pop','Predict Damage','On Ground','Check Players',
+    'Predict Crystals','Check Aim','Check Items','Activates Above','Blatant','Force Totem','Stay Open For','Only On Pop','Vertical Speed','Swap Speed',
+    'Strict One-Tick','Mace Priority','Min Totems','Min Pearls','Totem First','Drop Interval','Random Pattern','Horizontal Aim Speed',
+    'Vertical Aim Speed','Include Head','Web Delay','Holding Web','Not When Affects Player','Hit Delay','Switch Back','Require Hold Axe',
+    'Activate Key','Macro Key','Places Webs On Enemies','Move freely through walls','Refills your hotbar with potions','Keeps you sprinting at all times',
+    'placeInterval','breakInterval','stopOnKill','activateOnRightClick','damagetick','holdCrystal','fakePunch'
+)
+$mmPlainExtra = @(
+    'JDWP.VirtualMachine.AllModules','dontPlaceCrystal','dontBreakCrystal','dev.virel','orchard','autocrystal','cw crystal','autohitcrystal',
+    'canPlaceCrystalServer','healPotSlot','autoanchor','HasAnchor','anchortweaks','anchor macro','safe anchor','AirAnchor','anchorMacro','autototem',
+    'inventorytotem','legittotem','hover totem','speedPotSlot','strengthPotSlot','autopot','auto pot','autoarmor','auto armor',
+    'preventSwordBlockBreaking','preventSwordBlockAttack','ShieldBreaker','Breaking shield with axe...','autodoublehand','Failed to switch to mace after axe!',
+    'SpearSwap','Donut','JumpReset','axespam','axe spam','findKnockbackSword','attackRegisteredThisClick','aimassist','triggerbot','trigger bot',
+    'FakeInv','swapBackToOriginalSlot','pingspoof','ping spoof','mace_swap','quick_strike','macro_198','stun_slam','safe_anchor','double_anchor',
+    'auto_pot_refill','walksy_optimizer','key_pearl','aim_assist','auto_neth_pot','auto_dtap','trigger_bot','auto_web','DOUBLE_ESCAPE',
+    'DOUBLE_RIGHTCLICK_FIRST','DOUBLE_RIGHTCLICK_SECOND','POST_CYCLE_DELAY','PLACE_OBI','WAIT_OBI','PLACE_CRYSTAL','BREAK_CRYSTAL','ROTATING_DOWN',
+    'ROTATING_BACK','REFILLING','PLANTING','BONEMEALING','AnchorAction','Places two anchors for massive damage','REOFFHAND_TOTEM','webmacro','web macro',
+    'AntiWeb','lvstrng','dqrkis','selfdestruct','self destruct','WalksyCrystalOptimizerMod','WalksyOptimizer','WalskyOptimizer','autoCrystalPlaceClock',
+    'AutoFirework','FastXP','FastExp','NoJumpDelay','PackSpoof','Antiknockback','catlean','AuthBypass','obfuscatedAuth','LicenseCheckMixin','BaseFinder',
+    'invsee','ItemExploit','FreezePlayer','LootYeeter','setBlockBreakingCooldown','getBlockBreakingCooldown','blockBreakingCooldown','onBlockBreaking',
+    'setItemUseCooldown','invokeDoAttack','invokeDoItemUse','invokeOnMouseButton','onPushOutOfBlocks','onIsGlowing',
+    'Automatically switches to sword when hitting with totem','arrayOfString','POT_CHEATS','Dqrkis Client','Entity.isGlowing',
+    'KillAura','ClickAura','MultiAura','ForceField','LegitAura','AimBot','AutoAim','SilentAim','AimLock','HeadSnap','CrystalAura','AnchorAura','AnchorFill',
+    'AnchorPlace','BedAura','AutoBed','BedBomb','BedPlace','BowAimbot','BowSpam','AutoBow','AutoCrit','CritBypass','AlwaysCrit','CriticalHit','ReachHack',
+    'ExtendReach','LongReach','HitboxExpand','AntiKB','NoKnockback','GrimVelocity','GrimDisabler','VelocitySpoof','KBReduce','OffhandTotem','TotemSwitch',
+    'AutoWeapon','AutoSword','AutoCity','Burrow','SelfTrap','HoleFiller','AntiSurround','AntiBurrow','WTap','TargetStrafe','AutoGap','AutoPearl',
+    'FlyHack','CreativeFlight','BoatFly','PacketFly','AirJump','SpeedHack','BHop','BunnyHop','AntiFall','NoFallDamage','SafeFall','StepHack','FastClimb','AutoStep'
+)
+$mmStrSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+foreach ($s in $mmBoth) { [void]$mmStrSet.Add($s); [void]$mmStrSet.Add((ConvertTo-Fw $s)) }
+foreach ($s in $mmFwOnly) { [void]$mmStrSet.Add((ConvertTo-Fw $s)) }
+foreach ($s in $mmPlainExtra) { [void]$mmStrSet.Add($s) }
+$mmStrSorted = @($mmStrSet | Sort-Object -Property { $_.Length } -Descending)
+$mmStrAlt = ($mmStrSorted | ForEach-Object { [regex]::Escape($_) }) -join '|'
+$script:MmStrRx = New-Object System.Text.RegularExpressions.Regex -ArgumentList $mmStrAlt, ([System.Text.RegularExpressions.RegexOptions]::None)
+$script:MmFwRx = New-Object System.Text.RegularExpressions.Regex -ArgumentList '[\uFF21-\uFF3A\uFF41-\uFF5A\uFF10-\uFF19]{2,}', ([System.Text.RegularExpressions.RegexOptions]::Compiled)
+$script:MmFwPool = @($mmStrSet | Where-Object { $_ -cmatch '[\uFF21-\uFF3A\uFF41-\uFF5A\uFF10-\uFF19]' })
+
+# ---- arsiv yardimcilari ----
+function Open-MmArchive([string]$path) {
+    $zip = $null
+    try { $zip = [System.IO.Compression.ZipFile]::OpenRead($path) } catch { return $null }
+    if (-not $zip) { return $null }
+    $entries = New-Object System.Collections.Generic.List[object]
+    $inner = New-Object System.Collections.Generic.List[object]
+    $nested = New-Object System.Collections.Generic.List[object]
+    foreach ($e in @($zip.Entries)) { [void]$entries.Add($e) }
+    foreach ($e in @($zip.Entries)) {
+        if ($e.FullName -match '^META-INF/jars/.+\.jar$') {
+            [void]$nested.Add($e)
+            if ($e.Length -gt 0 -and $e.Length -lt 31457280) {
+                try {
+                    $ns = $e.Open()
+                    $ms = New-Object System.IO.MemoryStream
+                    $ns.CopyTo($ms); $ns.Dispose()
+                    $ms.Position = 0
+                    $iz = New-Object System.IO.Compression.ZipArchive($ms, [System.IO.Compression.ZipArchiveMode]::Read)
+                    [void]$inner.Add($iz)
+                    foreach ($ie in @($iz.Entries)) { [void]$entries.Add($ie) }
+                } catch {}
+            }
+        }
+    }
+    return @{ Zip = $zip; Entries = $entries; Inner = $inner; Nested = $nested }
+}
+function Close-MmArchive($a) {
+    if (-not $a) { return }
+    foreach ($i in $a.Inner) { try { $i.Dispose() } catch {} }
+    try { $a.Zip.Dispose() } catch {}
+}
+function Read-MmEntry($entry, [int]$max) {
+    try {
+        if ($entry.Length -gt $max) { return $null }
+        $st = $entry.Open()
+        $ms = New-Object System.IO.MemoryStream
+        $st.CopyTo($ms); $st.Dispose()
+        $b = $ms.ToArray(); $ms.Dispose()
+        return ,$b
+    } catch { return $null }
+}
+
+# ---- 1) hile string taramasi ----
+function Invoke-ModScan([string]$FilePath) {
+    $foundPatterns = New-Object 'System.Collections.Generic.HashSet[string]'
+    $foundStrings = New-Object 'System.Collections.Generic.HashSet[string]'
+    $foundFw = New-Object 'System.Collections.Generic.HashSet[string]'
+    $arc = Open-MmArchive $FilePath
+    if ($arc) {
+        foreach ($e in $arc.Entries) {
+            foreach ($m in $script:MmPatRx.Matches($e.FullName)) { [void]$foundPatterns.Add($m.Value) }
+        }
+        foreach ($e in $arc.Entries) {
+            $n = $e.FullName
+            if ($n -match '\.(class|json)$' -or $n -match 'MANIFEST\.MF') {
+                $bytes = Read-MmEntry $e 3145728
+                if ($null -eq $bytes) { continue }
+                $txt = [System.Text.Encoding]::UTF8.GetString($bytes)
+                foreach ($m in $script:MmPatRx.Matches($txt)) { [void]$foundPatterns.Add($m.Value) }
+                foreach ($m in $script:MmStrRx.Matches($txt)) { [void]$foundStrings.Add($m.Value) }
+                foreach ($m in $script:MmFwRx.Matches($txt)) { [void]$foundFw.Add($m.Value) }
+            }
+        }
+        Close-MmArchive $arc
+    }
+    $resolved = New-Object System.Collections.Generic.List[string]
+    $resSet = New-Object 'System.Collections.Generic.HashSet[string]'
+    foreach ($fw in @($foundFw)) {
+        if ($fw.Length -lt 3) { continue }
+        $best = $null
+        foreach ($cs in $script:MmFwPool) {
+            if ($cs.Contains($fw)) { if ($null -eq $best -or $cs.Length -lt $best.Length) { $best = $cs } }
+        }
+        if ($null -ne $best) { if ($resSet.Add($best)) { [void]$resolved.Add($best) } }
+        elseif ($fw.Length -ge 6) { if ($resSet.Add($fw)) { [void]$resolved.Add($fw) } }
+    }
+    $finalFw = New-Object System.Collections.Generic.List[string]
+    foreach ($fw in $resolved) {
+        $red = $false
+        foreach ($o in $resolved) { if ($fw.Length -lt $o.Length -and $o.Contains($fw)) { $red = $true; break } }
+        if (-not $red) { [void]$finalFw.Add($fw) }
+    }
+    return @{ Patterns = @($foundPatterns); Strings = @($foundStrings); Fullwidth = @($finalFw) }
+}
+
+# ---- 2) bypass / enjeksiyon taramasi ----
+function Test-MmJarName([string]$JarName) {
+    $base = [System.IO.Path]::GetFileNameWithoutExtension($JarName)
+    if ($base -match '\d') { return $false }
+    foreach ($pfx in @('com_','org_','net_','io_','dev_','gs_','xyz_','app_','me_','tv_','uk_','be_','fr_','de_')) {
+        if ($base.ToLower().StartsWith($pfx)) { return $false }
+    }
+    if ($base.Length -gt 20) { return $false }
+    return $true
+}
+function Invoke-MmBypassScan([string]$FilePath) {
+    $flags = New-Object System.Collections.Generic.List[string]
+    $arc = Open-MmArchive $FilePath
+    if (-not $arc) { return ,$flags }
+    $outerClasses = @($arc.Zip.Entries | Where-Object { $_.FullName -match '\.class$' })
+    foreach ($nj in $arc.Nested) {
+        $njBase = [System.IO.Path]::GetFileName($nj.FullName)
+        if (Test-MmJarName $njBase) { [void]$flags.Add('Suspicious nested JAR - no version, unknown dependency: ' + $njBase) }
+    }
+    if ($arc.Nested.Count -eq 1 -and $outerClasses.Count -lt 3) {
+        $njName = [System.IO.Path]::GetFileName($arc.Nested[0].FullName)
+        [void]$flags.Add('Hollow shell - only ' + $outerClasses.Count + ' own class(es), wraps: ' + $njName)
+    }
+    $outerModId = ''
+    $fmje = @($arc.Zip.Entries | Where-Object { $_.FullName -eq 'fabric.mod.json' } | Select-Object -First 1)
+    if ($fmje.Count -gt 0) {
+        $fb = Read-MmEntry $fmje[0] 262144
+        if ($null -ne $fb) {
+            $ft = [System.Text.Encoding]::UTF8.GetString($fb)
+            if ($ft -match '"id"\s*:\s*"([^"]+)"') { $outerModId = $Matches[1] }
+        }
+    }
+    $rtExec = $false; $httpDl = $false; $httpExfil = $false
+    $obfN = 0; $numN = 0; $uniN = 0; $totN = 0
+    foreach ($entry in $arc.Entries) {
+        $name = $entry.FullName
+        if ($name -notmatch '\.class$') { continue }
+        $totN++
+        $className = [System.IO.Path]::GetFileNameWithoutExtension(($name -split '/')[-1])
+        if ($className -match '^\d+$') { $numN++ }
+        if ($className -match '[^\x00-\x7F]') { $uniN++ }
+        $segs = ($name -replace '\.class$', '') -split '/'
+        $cons = 0; $maxC = 0
+        foreach ($seg in $segs) {
+            if ($seg.Length -eq 1) { $cons++; if ($cons -gt $maxC) { $maxC = $cons } } else { $cons = 0 }
+        }
+        if ($maxC -ge 3) { $obfN++ }
+        $rb = Read-MmEntry $entry 2097152
+        if ($null -eq $rb) { continue }
+        $ct = [System.Text.Encoding]::ASCII.GetString($rb)
+        if (-not $rtExec -and $ct.Contains('java/lang/Runtime') -and $ct.Contains('getRuntime') -and $ct.Contains('exec')) { $rtExec = $true }
+        if (-not $httpDl -and $ct.Contains('openConnection') -and $ct.Contains('HttpURLConnection') -and $ct.Contains('FileOutputStream')) { $httpDl = $true }
+        if (-not $httpExfil -and $ct.Contains('openConnection') -and $ct.Contains('setDoOutput') -and $ct.Contains('getOutputStream') -and $ct.Contains('getProperty')) { $httpExfil = $true }
+    }
+    Close-MmArchive $arc
+    $obfPct = 0; $numPct = 0; $uniPct = 0
+    if ($totN -ge 10) { $obfPct = [math]::Round(($obfN / $totN) * 100) }
+    if ($totN -ge 5) { $numPct = [math]::Round(($numN / $totN) * 100); $uniPct = [math]::Round(($uniN / $totN) * 100) }
+    if ($rtExec -and $obfPct -ge 25) { [void]$flags.Add('Runtime.exec() in obfuscated code - can run arbitrary OS commands') }
+    if ($httpDl) { [void]$flags.Add('HTTP file download - fetches and writes files from a remote server at runtime') }
+    if ($httpExfil) { [void]$flags.Add('HTTP POST exfiltration - sends system data to an external server') }
+    if ($totN -ge 10 -and $obfPct -ge 25) { [void]$flags.Add('Heavy obfuscation - ' + $obfPct + '% of classes use single-letter path segments (a/b/c style)') }
+    if ($numPct -ge 20) { [void]$flags.Add('Numeric class names - ' + $numPct + '% of classes have numeric-only names') }
+    if ($uniPct -ge 10) { [void]$flags.Add('Unicode class names - ' + $uniPct + '% of classes use non-ASCII characters') }
+    $legitIds = @('vmp-fabric','vmp','lithium','sodium','iris','fabric-api','modmenu','ferrite-core','lazydfu','starlight','entityculling','memoryleakfix','krypton','c2me-fabric','smoothboot-fabric','immediatelyfast','noisium','threadtweak')
+    $danger = @($flags | Where-Object { $_ -match 'Runtime\.exec|HTTP file download|HTTP POST|Heavy obfuscation|Suspicious nested JAR' }).Count
+    if ($outerModId -and ($legitIds -contains $outerModId) -and $danger -gt 0) {
+        [void]$flags.Add("Fake mod identity - claims to be '" + $outerModId + "' but contains dangerous code")
+    }
+    return ,$flags
+}
+
+# ---- 3) obfuscation analizi ----
+function Invoke-MmObfScan([string]$FilePath) {
+    $flags = New-Object System.Collections.Generic.List[string]
+    $arc = $null
+    try { $arc = [System.IO.Compression.ZipFile]::OpenRead($FilePath) } catch { return ,$flags }
+    $totalClass = 0; $numeric = 0; $unicode = 0; $fullw = 0; $jp = 0; $s1 = 0; $s2 = 0; $gib = 0; $nov = 0; $conf = 0; $singlePkg = 0
+    $sample = New-Object System.Text.StringBuilder
+    $sampleSize = 0
+    $cheatObf = [ordered]@{
+        'Skidfuscator' = @('dev/skidfuscator', 'Skidfuscator', 'skidfuscator.dev')
+        'Paramorphism' = @('Paramorphism', 'paramorphism-', 'dev/paramorphism')
+        'Radon' = @('ItzSomebody/Radon', 'me/itzsomebody/radon', 'Radon Obfuscator')
+        'Caesium' = @('sim0n/Caesium', 'Caesium Obfuscator', 'dev/sim0n/caesium')
+        'Bozar' = @('vimasig/Bozar', 'Bozar Obfuscator', 'com/bozar')
+        'Branchlock' = @('Branchlock', 'branchlock.dev')
+        'Binscure' = @('Binscure', 'com/binscure')
+        'SuperBlaubeere' = @('superblaubeere', 'superblaubeere27')
+        'Qprotect' = @('Qprotect', 'QProtect', 'mdma.dev/qprotect')
+        'Zelix' = @('ZKMFLOW', 'ZelixKlassMaster', 'com/zelix')
+        'Stringer' = @('StringerJavaObfuscator', 'com/licel/stringer')
+        'JNIC' = @('jnic.obf', 'jnic-obfuscator')
+        'Scuti' = @('ScutiObf', 'scuti.obf')
+        'Smoke' = @('SmokeObf', 'smoke.obf')
+    }
+    try {
+        foreach ($entry in $arc.Entries) {
+            $name = $entry.FullName
+            if ($name -notmatch '\.class$') { continue }
+            $totalClass++
+            $className = [System.IO.Path]::GetFileNameWithoutExtension(($name -split '/')[-1])
+            if ($className -match '^\d+$') { $numeric++ }
+            if ($className -match '[^\x00-\x7F]') { $unicode++ }
+            if ($className -match '[\uFF21-\uFF3A\uFF41-\uFF5A\uFF10-\uFF19]') { $fullw++ }
+            if ($className -match '[\u3040-\u309F\u30A0-\u30FF]') { $jp++ }
+            if ($className -match '^[a-zA-Z]$') { $s1++ }
+            if ($className -match '^[a-zA-Z]{2}$') { $s2++ }
+            if ($className -match '^[Il1O0]+$' -or $className -match '^_+$') { $conf++ }
+            if ($className.Length -ge 3 -and $className.Length -le 8 -and $className -match '^[a-zA-Z]+$') {
+                $vow = ([regex]::Matches($className, '[aeiouAEIOU]')).Count
+                if ($vow -eq 0) { $nov++ }
+                if (($className -match '[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]{3,}') -and (($vow / $className.Length) -lt 0.3)) { $gib++ }
+            }
+            $segs = ($name -replace '\.class$', '') -split '/'
+            if ($segs.Count -gt 1) { foreach ($seg in $segs[0..($segs.Count - 2)]) { if ($seg.Length -eq 1) { $singlePkg++ } } }
+            if ($sampleSize -lt 150000 -and $entry.Length -lt 100000 -and $entry.Length -gt 100) {
+                $sb2 = Read-MmEntry $entry 100000
+                if ($null -ne $sb2) {
+                    $as = [System.Text.Encoding]::ASCII.GetString($sb2)
+                    [void]$sample.Append($as)
+                    $sampleSize += $as.Length
+                }
+            }
+        }
+    } catch {}
+    try { $arc.Dispose() } catch {}
+    if ($totalClass -lt 5) { return ,$flags }
+    $pct = { param($n) [math]::Round(($n / $totalClass) * 100) }
+    $numPct = & $pct $numeric; $uniPct = & $pct $unicode; $fwPct = & $pct $fullw; $jpPct = & $pct $jp
+    $s1Pct = & $pct $s1; $s2Pct = & $pct $s2; $gibPct = & $pct $gib; $novPct = & $pct $nov; $confPct = & $pct $conf
+    if ($numPct -ge 20) { [void]$flags.Add('Numeric class names - ' + $numPct + '% of classes have numeric-only names') }
+    if ($uniPct -ge 10) { [void]$flags.Add('Unicode class names - ' + $uniPct + '% of classes use non-ASCII characters') }
+    if ($fwPct -gt 0) { [void]$flags.Add('Fullwidth Unicode class names - ' + $fwPct + '% use fullwidth chars (' + $fullw + ' classes)') }
+    if ($jpPct -gt 0) { [void]$flags.Add('Japanese obfuscation - ' + $jpPct + '% use hiragana/katakana class names (' + $jp + ' classes)') }
+    if ($s1Pct -ge 15) { [void]$flags.Add('Single-letter class names - ' + $s1Pct + '% (' + $s1 + ' classes)') }
+    if ($s2Pct -ge 20) { [void]$flags.Add('Two-letter class names - ' + $s2Pct + '% (' + $s2 + ' classes)') }
+    if ($gibPct -ge 5) { [void]$flags.Add('Gibberish class names - ' + $gibPct + '% have no vowels / consonant clusters (' + $gib + ' classes)') }
+    if ($novPct -ge 8) { [void]$flags.Add('No-vowel class names - ' + $novPct + '% (' + $nov + ' classes)') }
+    if ($confPct -ge 3) { [void]$flags.Add('Confusion-char names (Il1O0/_) - ' + $confPct + '% (' + $conf + ' classes)') }
+    if ($singlePkg -ge 6) { [void]$flags.Add('Single-char package paths - ' + $singlePkg + ' path segments like a/b/c') }
+    $sampleStr = $sample.ToString()
+    $fwM = $script:MmFwRx.Matches($sampleStr)
+    if ($fwM.Count -gt 0) {
+        $ex = (@($fwM | Select-Object -First 3 | ForEach-Object { $_.Value }) -join ', ')
+        [void]$flags.Add('Fullwidth strings in class content - ' + $fwM.Count + ' occurrences (e.g. ' + $ex + ')')
+    }
+    foreach ($on in $cheatObf.Keys) {
+        foreach ($pt in $cheatObf[$on]) {
+            if ($sampleStr.Contains($pt)) { [void]$flags.Add('Known cheat obfuscator detected - ' + $on + ' (matched: ' + $pt + ')'); break }
+        }
+    }
+    return ,$flags
+}
+
+# ---- hash dogrulama (Modrinth / Megabase) ----
+function Invoke-MmWeb([string]$uri) {
+    if (-not $script:MmNet) { return $null }
+    try {
+        $r = Invoke-RestMethod -Uri $uri -Method Get -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop
+        $script:MmFails = 0
+        return $r
+    } catch {
+        $code = 0
+        try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+        if ($code -ne 404 -and $code -ne 400) {
+            $script:MmFails++
+            if ($script:MmFails -ge 4) { $script:MmNet = $false }
+        }
+        return $null
+    }
+}
+function Get-MmVerify([string]$hash) {
+    $res = @{ Name = ''; Slug = ''; By = '' }
+    if (-not $hash) { return $res }
+    $vi = Invoke-MmWeb ('https://api.modrinth.com/v2/version_file/' + $hash)
+    if ($vi -and $vi.project_id) {
+        $pj = Invoke-MmWeb ('https://api.modrinth.com/v2/project/' + $vi.project_id)
+        if ($pj -and $pj.slug) { $res.Name = [string]$pj.title; $res.Slug = [string]$pj.slug; $res.By = 'Modrinth'; return $res }
+    }
+    $mb = Invoke-MmWeb ('https://megabase.vercel.app/api/query?hash=' + $hash)
+    if ($mb -and -not $mb.error -and $mb.data -and $mb.data.name) { $res.Name = [string]$mb.data.name; $res.By = 'Megabase' }
+    return $res
+}
+function Get-MmSource([string]$path) {
+    $zd = $null
+    try { $zd = Get-Content -Raw -Stream Zone.Identifier -LiteralPath $path -ErrorAction Stop } catch {}
+    if ($zd -and $zd -match 'HostUrl=(.+)') {
+        $url = $Matches[1].Trim()
+        if ($url -match 'mediafire\.com') { return 'MediaFire' }
+        if ($url -match 'discord(app)?\.(com|net)') { return 'Discord' }
+        if ($url -match 'dropbox\.com') { return 'Dropbox' }
+        if ($url -match 'drive\.google\.com') { return 'Google Drive' }
+        if ($url -match 'mega\.nz|mega\.co\.nz') { return 'MEGA' }
+        if ($url -match 'github\.com') { return 'GitHub' }
+        if ($url -match 'modrinth\.com') { return 'Modrinth' }
+        if ($url -match 'curseforge\.com') { return 'CurseForge' }
+        if ($url -match 'anydesk\.com') { return 'AnyDesk' }
+        if ($url -match 'https?://(?:www\.)?([^/]+)') { return $Matches[1] }
+        return $url
+    }
+    return ''
+}
+function Get-MmFlagScore([string]$f) {
+    if ($f -match '^Fake mod identity') { return 70 }
+    if ($f -match '^Runtime\.exec') { return 50 }
+    if ($f -match '^HTTP POST') { return 50 }
+    if ($f -match '^HTTP file download') { return 40 }
+    if ($f -match '^Hollow shell') { return 45 }
+    if ($f -match '^Suspicious nested JAR') { return 35 }
+    if ($f -match '^Known cheat obfuscator') { return 45 }
+    if ($f -match '^(Fullwidth|Japanese)') { return 45 }
+    if ($f -match '^Heavy obfuscation') { return 35 }
+    return 30
+}
+
+# ---- mod klasorlerini bul ----
+$mmDirs = New-Object System.Collections.Generic.List[string]
+$mmDirSeen = @{}
+function Add-MmDir([string]$d) {
+    if ([string]::IsNullOrWhiteSpace($d)) { return }
+    if (-not (Test-Path -LiteralPath $d -PathType Container)) { return }
+    $k = $d.TrimEnd('\').ToLower()
+    if ($mmDirSeen.ContainsKey($k)) { return }
+    $mmDirSeen[$k] = 1
+    [void]$mmDirs.Add($d)
+}
+Add-MmDir ($env:APPDATA + '\.minecraft\mods')
+foreach ($g in $script:GameDirs) { Add-MmDir ($g + '\mods') }
+foreach ($pat in @(
+    ($env:APPDATA + '\ModrinthApp\profiles\*\mods'),
+    ($env:APPDATA + '\com.modrinth.theseus\profiles\*\mods'),
+    ($env:APPDATA + '\PrismLauncher\instances\*\.minecraft\mods'),
+    ($env:APPDATA + '\PrismLauncher\instances\*\minecraft\mods'),
+    ($env:APPDATA + '\MultiMC\instances\*\.minecraft\mods'),
+    ($env:USERPROFILE + '\curseforge\minecraft\Instances\*\mods'),
+    ($env:APPDATA + '\ATLauncher\instances\*\mods'),
+    ($env:APPDATA + '\.minecraft\versions\*\mods')
+)) {
+    foreach ($x in @(Get-ChildItem -Path $pat -Directory -ErrorAction SilentlyContinue)) { Add-MmDir $x.FullName }
+}
+$mmJars = New-Object System.Collections.Generic.List[object]
+$mmJarSeen = @{}
+foreach ($d in $mmDirs) {
+    Log ('   mod klasoru: ' + $d) 'DarkGray'
+    foreach ($j in @(Get-ChildItem -LiteralPath $d -File -Recurse -Depth 1 -Filter '*.jar' -Force -ErrorAction SilentlyContinue)) {
+        $jk = $j.FullName.ToLower()
+        if ($mmJarSeen.ContainsKey($jk)) { continue }
+        $mmJarSeen[$jk] = 1
+        [void]$mmJars.Add($j)
+    }
+}
+if ($mmDirs.Count -eq 0) { Log '   mod klasoru bulunamadi (.minecraft\mods, calisan oyunun gameDir i, Modrinth/Prism/CurseForge/ATLauncher profilleri).' 'DarkGray' }
+if ($mmDirs.Count -gt 0 -and $mmJars.Count -eq 0) { Log '   mod klasorleri var ama icinde .jar yok.' 'DarkGray' }
+if ($mmJars.Count -gt 0 -and $script:MmNet) { Log '   NOT: mod dosyalarinin SHA1 hash i Modrinth/Megabase te sorgulanacak (dosya icerigi gonderilmez). Kapatmak icin: $env:HK_NONET=1' 'DarkGray' }
+
+# ---- HIZLI MOTOR: 3 ayri PowerShell gecisi (string/bypass/obfuscation) tek gecisli, paralel C# tarayiciya birlestirildi; SHA1 hesabi paralel ----
+$mmCs = @'
+using System;
+using System.IO;
+using System.IO.Compression;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Net;
+using System.Security.Cryptography;
+using System.Threading.Tasks;
+public sealed class HkTrie {
+    sealed class Node { public Dictionary<char, Node> Kids; public bool End; }
+    readonly Node root = new Node();
+    readonly bool[] first = new bool[65536];
+    readonly bool bounded;
+    static bool IsAlpha(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+    public HkTrie(string[] words, bool bounded) {
+        this.bounded = bounded;
+        foreach (string w in words) {
+            if (string.IsNullOrEmpty(w)) continue;
+            Node nd = root;
+            foreach (char c in w) {
+                if (nd.Kids == null) nd.Kids = new Dictionary<char, Node>();
+                Node nx;
+                if (!nd.Kids.TryGetValue(c, out nx)) { nx = new Node(); nd.Kids[c] = nx; }
+                nd = nx;
+            }
+            nd.End = true;
+            first[w[0]] = true;
+        }
+    }
+    // Regex alternation ile ayni semantik: en soldan, en uzun eslesme, sinir kontrolu (lookbehind/lookahead) ile.
+    public void Collect(string text, HashSet<string> into) {
+        int n = text.Length, i = 0;
+        while (i < n) {
+            if (!first[text[i]]) { i++; continue; }
+            if (bounded && i > 0 && IsAlpha(text[i - 1])) { i++; continue; }
+            Node nd = root; int j = i, best = -1;
+            while (j < n) {
+                Node nx;
+                if (nd.Kids == null || !nd.Kids.TryGetValue(text[j], out nx)) break;
+                nd = nx; j++;
+                if (nd.End && (!bounded || j >= n || !IsAlpha(text[j]))) best = j;
+            }
+            if (best > 0) { into.Add(text.Substring(i, best - i)); i = best; } else i++;
+        }
+    }
+}
+public class HkMmRes {
+    public string[] Patterns = new string[0];
+    public string[] Strings = new string[0];
+    public string[] Fullwidth = new string[0];
+    public string[] Bypass = new string[0];
+    public string[] Obf = new string[0];
+}
+public static class HkMm {
+    const StringComparison SC = StringComparison.OrdinalIgnoreCase;
+    static Regex RxNested = new Regex(@"^META-INF/jars/.+\.jar$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxModId = new Regex(@"""id""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxDanger = new Regex(@"Runtime\.exec|HTTP file download|HTTP POST|Heavy obfuscation|Suspicious nested JAR", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxNum = new Regex(@"^\d+$", RegexOptions.Compiled);
+    static Regex RxNonAscii = new Regex(@"[^\x00-\x7F]", RegexOptions.Compiled);
+    static Regex RxFwChar = new Regex(@"[Ａ-Ｚａ-ｚ０-９]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxJp = new Regex(@"[぀-ゟ゠-ヿ]", RegexOptions.Compiled);
+    static Regex RxS1 = new Regex(@"^[a-zA-Z]$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxS2 = new Regex(@"^[a-zA-Z]{2}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxConf = new Regex(@"^[Il1O0]+$|^_+$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxAlpha = new Regex(@"^[a-zA-Z]+$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Regex RxCluster = new Regex(@"[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]{3,}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static Dictionary<string, Regex> Cache = new Dictionary<string, Regex>();
+    static readonly Encoding Lat1 = Encoding.GetEncoding(28591);
+    static string[] LegitIds = new string[] { "vmp-fabric","vmp","lithium","sodium","iris","fabric-api","modmenu","ferrite-core","lazydfu","starlight","entityculling","memoryleakfix","krypton","c2me-fabric","smoothboot-fabric","immediatelyfast","noisium","threadtweak" };
+    static string[] Pfx = new string[] { "com_","org_","net_","io_","dev_","gs_","xyz_","app_","me_","tv_","uk_","be_","fr_","de_" };
+    static string[] ObfNames = new string[] { "Skidfuscator","Paramorphism","Radon","Caesium","Bozar","Branchlock","Binscure","SuperBlaubeere","Qprotect","Zelix","Stringer","JNIC","Scuti","Smoke" };
+    static string[][] ObfPats = new string[][] {
+        new string[] { "dev/skidfuscator", "Skidfuscator", "skidfuscator.dev" },
+        new string[] { "Paramorphism", "paramorphism-", "dev/paramorphism" },
+        new string[] { "ItzSomebody/Radon", "me/itzsomebody/radon", "Radon Obfuscator" },
+        new string[] { "sim0n/Caesium", "Caesium Obfuscator", "dev/sim0n/caesium" },
+        new string[] { "vimasig/Bozar", "Bozar Obfuscator", "com/bozar" },
+        new string[] { "Branchlock", "branchlock.dev" },
+        new string[] { "Binscure", "com/binscure" },
+        new string[] { "superblaubeere", "superblaubeere27" },
+        new string[] { "Qprotect", "QProtect", "mdma.dev/qprotect" },
+        new string[] { "ZKMFLOW", "ZelixKlassMaster", "com/zelix" },
+        new string[] { "StringerJavaObfuscator", "com/licel/stringer" },
+        new string[] { "jnic.obf", "jnic-obfuscator" },
+        new string[] { "ScutiObf", "scuti.obf" },
+        new string[] { "SmokeObf", "smoke.obf" }
+    };
+    static Regex Get(string p) {
+        lock (Cache) {
+            Regex r;
+            if (!Cache.TryGetValue(p, out r)) { r = new Regex(p, RegexOptions.Compiled); Cache[p] = r; }
+            return r;
+        }
+    }
+    static byte[] ReadAll(ZipArchiveEntry e, long max) {
+        try {
+            long len = e.Length;
+            if (len > max) return null;
+            using (Stream s = e.Open()) {
+                byte[] b = new byte[len];
+                int off = 0;
+                while (off < len) {
+                    int c = s.Read(b, off, (int)(len - off));
+                    if (c <= 0) break;
+                    off += c;
+                }
+                if (off != len) Array.Resize(ref b, off);
+                return b;
+            }
+        } catch { return null; }
+    }
+    static string LastSeg(string n) { int i = n.LastIndexOf('/'); return i >= 0 ? n.Substring(i + 1) : n; }
+    static string NoExt(string n) { int d = n.LastIndexOf('.'); return d >= 0 ? n.Substring(0, d) : n; }
+    static bool JarNameSus(string jarName) {
+        string b = NoExt(jarName);
+        foreach (char c in b) { if (char.IsDigit(c)) return false; }
+        string lo = b.ToLowerInvariant();
+        foreach (string p in Pfx) { if (lo.StartsWith(p, StringComparison.Ordinal)) return false; }
+        if (b.Length > 20) return false;
+        return true;
+    }
+    static int Pct(int n, int total) { return (int)Math.Round(((double)n / total) * 100.0); }
+    static string[] ToArr(HashSet<string> h) { string[] a = new string[h.Count]; h.CopyTo(a); return a; }
+
+    public static HkMmRes Scan(string path, HkTrie pat, HkTrie str, Regex fw, string[] fwPool) {
+        HkMmRes r = new HkMmRes();
+        ZipArchive zip = null;
+        List<ZipArchive> inners = new List<ZipArchive>();
+        try { zip = ZipFile.OpenRead(path); } catch { return r; }
+        try {
+            List<ZipArchiveEntry> entries = new List<ZipArchiveEntry>();
+            List<ZipArchiveEntry> nested = new List<ZipArchiveEntry>();
+            foreach (ZipArchiveEntry e in zip.Entries) entries.Add(e);
+            int outerCount = entries.Count;
+            for (int i = 0; i < outerCount; i++) {
+                ZipArchiveEntry e = entries[i];
+                if (RxNested.IsMatch(e.FullName)) {
+                    nested.Add(e);
+                    if (e.Length > 0 && e.Length < 31457280) {
+                        try {
+                            byte[] nb = ReadAll(e, 31457280);
+                            if (nb != null) {
+                                ZipArchive iz = new ZipArchive(new MemoryStream(nb), ZipArchiveMode.Read);
+                                inners.Add(iz);
+                                foreach (ZipArchiveEntry ie in iz.Entries) entries.Add(ie);
+                            }
+                        } catch { }
+                    }
+                }
+            }
+            HashSet<string> pats = new HashSet<string>();
+            HashSet<string> strs = new HashSet<string>();
+            HashSet<string> fws = new HashSet<string>();
+            List<string> bypass = new List<string>();
+            List<string> obf = new List<string>();
+
+            // --- bypass: ic ice jar ve kabuk jar kontrolleri ---
+            int outerClasses = 0;
+            for (int i = 0; i < outerCount; i++) { if (entries[i].FullName.EndsWith(".class", SC)) outerClasses++; }
+            string modId = "";
+            for (int i = 0; i < outerCount; i++) {
+                if (string.Equals(entries[i].FullName, "fabric.mod.json", SC)) {
+                    byte[] fb = ReadAll(entries[i], 262144);
+                    if (fb != null) { Match mm = RxModId.Match(Encoding.UTF8.GetString(fb)); if (mm.Success) modId = mm.Groups[1].Value; }
+                    break;
+                }
+            }
+            foreach (ZipArchiveEntry nj in nested) {
+                string njBase = LastSeg(nj.FullName);
+                if (JarNameSus(njBase)) bypass.Add("Suspicious nested JAR - no version, unknown dependency: " + njBase);
+            }
+            if (nested.Count == 1 && outerClasses < 3) bypass.Add("Hollow shell - only " + outerClasses + " own class(es), wraps: " + LastSeg(nested[0].FullName));
+
+            // --- ad desenleri (tum girdiler) ---
+            foreach (ZipArchiveEntry e in entries) { pat.Collect(e.FullName, pats); }
+
+            bool rtExec = false, httpDl = false, httpExfil = false;
+            int obfN = 0, numN = 0, uniN = 0, totN = 0;
+            int tc = 0, numeric = 0, unicode = 0, fullw = 0, jp = 0, s1 = 0, s2 = 0, gib = 0, nov = 0, conf = 0, singlePkg = 0;
+            StringBuilder sample = new StringBuilder();
+            int sampleSize = 0;
+
+            for (int i = 0; i < entries.Count; i++) {
+                ZipArchiveEntry e = entries[i];
+                string n = e.FullName;
+                bool isClass = n.EndsWith(".class", SC);
+                bool isTxt = isClass || n.EndsWith(".json", SC) || n.IndexOf("MANIFEST.MF", SC) >= 0;
+                byte[] bytes = null;
+                if (isTxt) bytes = ReadAll(e, 3145728);
+                if (bytes != null) {
+                    try {
+                        string t = Encoding.UTF8.GetString(bytes);
+                        pat.Collect(t, pats);
+                        str.Collect(t, strs);
+                        foreach (Match m in fw.Matches(t)) fws.Add(m.Value);
+                    } catch { }
+                }
+                if (!isClass) continue;
+                string last = LastSeg(n);
+                string cn = NoExt(last);
+                string nm = n.Substring(0, n.Length - 6);
+                string[] segs = nm.Split('/');
+                // bypass sayaclari (tum class lar)
+                totN++;
+                if (RxNum.IsMatch(cn)) numN++;
+                if (RxNonAscii.IsMatch(cn)) uniN++;
+                int cons = 0, maxC = 0;
+                foreach (string sg in segs) { if (sg.Length == 1) { cons++; if (cons > maxC) maxC = cons; } else cons = 0; }
+                if (maxC >= 3) obfN++;
+                if (bytes != null && bytes.Length <= 2097152 && !(rtExec && httpDl && httpExfil)) {
+                    string ct = Lat1.GetString(bytes);
+                    if (!rtExec && ct.Contains("java/lang/Runtime") && ct.Contains("getRuntime") && ct.Contains("exec")) rtExec = true;
+                    if (!httpDl && ct.Contains("openConnection") && ct.Contains("HttpURLConnection") && ct.Contains("FileOutputStream")) httpDl = true;
+                    if (!httpExfil && ct.Contains("openConnection") && ct.Contains("setDoOutput") && ct.Contains("getOutputStream") && ct.Contains("getProperty")) httpExfil = true;
+                }
+                // obfuscation sayaclari (sadece dis jar class lari)
+                if (i < outerCount) {
+                    tc++;
+                    if (RxNum.IsMatch(cn)) numeric++;
+                    if (RxNonAscii.IsMatch(cn)) unicode++;
+                    if (RxFwChar.IsMatch(cn)) fullw++;
+                    if (RxJp.IsMatch(cn)) jp++;
+                    if (RxS1.IsMatch(cn)) s1++;
+                    if (RxS2.IsMatch(cn)) s2++;
+                    if (RxConf.IsMatch(cn)) conf++;
+                    if (cn.Length >= 3 && cn.Length <= 8 && RxAlpha.IsMatch(cn)) {
+                        int vow = 0;
+                        foreach (char ch in cn) { if ("aeiouAEIOU".IndexOf(ch) >= 0) vow++; }
+                        if (vow == 0) nov++;
+                        if (RxCluster.IsMatch(cn) && ((double)vow / cn.Length) < 0.3) gib++;
+                    }
+                    if (segs.Length > 1) { for (int q = 0; q < segs.Length - 1; q++) { if (segs[q].Length == 1) singlePkg++; } }
+                    if (sampleSize < 150000 && e.Length < 100000 && e.Length > 100 && bytes != null) {
+                        string asx = Encoding.ASCII.GetString(bytes);
+                        sample.Append(asx);
+                        sampleSize += asx.Length;
+                    }
+                }
+            }
+
+            // --- bypass sonuc bayraklari ---
+            int obfPct = 0, numPct = 0, uniPct = 0;
+            if (totN >= 10) obfPct = Pct(obfN, totN);
+            if (totN >= 5) { numPct = Pct(numN, totN); uniPct = Pct(uniN, totN); }
+            if (rtExec && obfPct >= 25) bypass.Add("Runtime.exec() in obfuscated code - can run arbitrary OS commands");
+            if (httpDl) bypass.Add("HTTP file download - fetches and writes files from a remote server at runtime");
+            if (httpExfil) bypass.Add("HTTP POST exfiltration - sends system data to an external server");
+            if (totN >= 10 && obfPct >= 25) bypass.Add("Heavy obfuscation - " + obfPct + "% of classes use single-letter path segments (a/b/c style)");
+            if (numPct >= 20) bypass.Add("Numeric class names - " + numPct + "% of classes have numeric-only names");
+            if (uniPct >= 10) bypass.Add("Unicode class names - " + uniPct + "% of classes use non-ASCII characters");
+            int danger = 0;
+            foreach (string f in bypass) { if (RxDanger.IsMatch(f)) danger++; }
+            if (modId.Length > 0 && danger > 0) {
+                foreach (string lg in LegitIds) {
+                    if (string.Equals(lg, modId, SC)) { bypass.Add("Fake mod identity - claims to be '" + modId + "' but contains dangerous code"); break; }
+                }
+            }
+
+            // --- obfuscation sonuc bayraklari ---
+            if (tc >= 5) {
+                int numPct2 = Pct(numeric, tc), uniPct2 = Pct(unicode, tc), fwPct = Pct(fullw, tc), jpPct = Pct(jp, tc);
+                int s1Pct = Pct(s1, tc), s2Pct = Pct(s2, tc), gibPct = Pct(gib, tc), novPct = Pct(nov, tc), confPct = Pct(conf, tc);
+                if (numPct2 >= 20) obf.Add("Numeric class names - " + numPct2 + "% of classes have numeric-only names");
+                if (uniPct2 >= 10) obf.Add("Unicode class names - " + uniPct2 + "% of classes use non-ASCII characters");
+                if (fwPct > 0) obf.Add("Fullwidth Unicode class names - " + fwPct + "% use fullwidth chars (" + fullw + " classes)");
+                if (jpPct > 0) obf.Add("Japanese obfuscation - " + jpPct + "% use hiragana/katakana class names (" + jp + " classes)");
+                if (s1Pct >= 15) obf.Add("Single-letter class names - " + s1Pct + "% (" + s1 + " classes)");
+                if (s2Pct >= 20) obf.Add("Two-letter class names - " + s2Pct + "% (" + s2 + " classes)");
+                if (gibPct >= 5) obf.Add("Gibberish class names - " + gibPct + "% have no vowels / consonant clusters (" + gib + " classes)");
+                if (novPct >= 8) obf.Add("No-vowel class names - " + novPct + "% (" + nov + " classes)");
+                if (confPct >= 3) obf.Add("Confusion-char names (Il1O0/_) - " + confPct + "% (" + conf + " classes)");
+                if (singlePkg >= 6) obf.Add("Single-char package paths - " + singlePkg + " path segments like a/b/c");
+                string sampleStr = sample.ToString();
+                MatchCollection fwM = fw.Matches(sampleStr);
+                if (fwM.Count > 0) {
+                    List<string> ex = new List<string>();
+                    for (int q = 0; q < fwM.Count && q < 3; q++) ex.Add(fwM[q].Value);
+                    obf.Add("Fullwidth strings in class content - " + fwM.Count + " occurrences (e.g. " + string.Join(", ", ex.ToArray()) + ")");
+                }
+                for (int q = 0; q < ObfNames.Length; q++) {
+                    foreach (string pt in ObfPats[q]) {
+                        if (sampleStr.Contains(pt)) { obf.Add("Known cheat obfuscator detected - " + ObfNames[q] + " (matched: " + pt + ")"); break; }
+                    }
+                }
+            }
+
+            // --- fullwidth cozumleme ---
+            List<string> resolved = new List<string>();
+            HashSet<string> resSet = new HashSet<string>();
+            foreach (string f in fws) {
+                if (f.Length < 3) continue;
+                string best = null;
+                foreach (string cs in fwPool) { if (cs.Contains(f)) { if (best == null || cs.Length < best.Length) best = cs; } }
+                if (best != null) { if (resSet.Add(best)) resolved.Add(best); }
+                else if (f.Length >= 6) { if (resSet.Add(f)) resolved.Add(f); }
+            }
+            List<string> finalFw = new List<string>();
+            foreach (string f in resolved) {
+                bool red = false;
+                foreach (string o in resolved) { if (f.Length < o.Length && o.Contains(f)) { red = true; break; } }
+                if (!red) finalFw.Add(f);
+            }
+            r.Patterns = ToArr(pats);
+            r.Strings = ToArr(strs);
+            r.Fullwidth = finalFw.ToArray();
+            r.Bypass = bypass.ToArray();
+            r.Obf = obf.ToArray();
+        } catch { }
+        finally {
+            foreach (ZipArchive iz in inners) { try { iz.Dispose(); } catch { } }
+            try { zip.Dispose(); } catch { }
+        }
+        return r;
+    }
+    public static HkMmRes[] ScanMany(string[] paths, string[] patList, string[] strList, string fwRx, string[] fwPool, int threads) {
+        HkTrie pat = new HkTrie(patList, true);
+        HkTrie str = new HkTrie(strList, false);
+        Regex fw = Get(fwRx);
+        HkMmRes[] res = new HkMmRes[paths.Length];
+        ParallelOptions po = new ParallelOptions();
+        po.MaxDegreeOfParallelism = threads;
+        Parallel.For(0, paths.Length, po, delegate(int i) {
+            System.Threading.Thread th = System.Threading.Thread.CurrentThread;
+            System.Threading.ThreadPriority oldP = th.Priority;
+            try { th.Priority = System.Threading.ThreadPriority.BelowNormal; } catch { }
+            try { res[i] = Scan(paths[i], pat, str, fw, fwPool); } catch { res[i] = new HkMmRes(); }
+            finally { try { th.Priority = oldP; } catch { } }
+        });
+        return res;
+    }
+    public static string[] Sha1Many(string[] paths, int threads) {
+        string[] res = new string[paths.Length];
+        ParallelOptions po = new ParallelOptions();
+        po.MaxDegreeOfParallelism = threads;
+        Parallel.For(0, paths.Length, po, delegate(int i) {
+            try {
+                using (FileStream fs = new FileStream(paths[i], FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (SHA1 sha = SHA1.Create()) {
+                    byte[] h = sha.ComputeHash(fs);
+                    StringBuilder sb = new StringBuilder();
+                    foreach (byte b in h) sb.Append(b.ToString("X2"));
+                    res[i] = sb.ToString();
+                }
+            } catch { res[i] = ""; }
+        });
+        return res;
+    }
+    // null = ag hatasi, "" = sunucu yanit verdi ama kayit yok (404/400), diger = govde
+    public static string[] FetchMany(string[] urls, int timeoutMs, int threads) {
+        string[] res = new string[urls.Length];
+        ServicePointManager.DefaultConnectionLimit = Math.Max(16, threads * 2);
+        ParallelOptions po = new ParallelOptions();
+        po.MaxDegreeOfParallelism = threads;
+        Parallel.For(0, urls.Length, po, delegate(int i) {
+            try {
+                HttpWebRequest rq = (HttpWebRequest)WebRequest.Create(urls[i]);
+                rq.Timeout = timeoutMs;
+                rq.ReadWriteTimeout = timeoutMs;
+                rq.UserAgent = "HileKiran/1.0";
+                using (HttpWebResponse rs = (HttpWebResponse)rq.GetResponse())
+                using (StreamReader sr = new StreamReader(rs.GetResponseStream(), Encoding.UTF8)) { res[i] = sr.ReadToEnd(); }
+            } catch (WebException ex) {
+                HttpWebResponse er = ex.Response as HttpWebResponse;
+                if (er != null) { int code = (int)er.StatusCode; er.Close(); res[i] = (code == 404 || code == 400) ? "" : null; }
+                else res[i] = null;
+            } catch { res[i] = null; }
+        });
+        return res;
+    }
+}
+'@
+$mmCsOk = $false
+try {
+    if (-not ('HkMm' -as [type])) { Add-Type -TypeDefinition $mmCs -Language CSharp -ReferencedAssemblies @('System.IO.Compression', 'System.IO.Compression.FileSystem') -ErrorAction Stop }
+    $mmCsOk = $true
+} catch { Log ('   UYARI: hizli mod motoru derlenemedi, yavas yola donuluyor: ' + $_.Exception.Message) 'DarkYellow' }
+
+# Toplu hash dogrulama: Modrinth tek istekte (version_files + projects), bulunamayanlar Megabase te paralel
+function Get-MmVerifyMany([string[]]$hashes) {
+    $out = @{}
+    if (-not $script:MmNet -or -not $hashes -or $hashes.Count -eq 0) { return $out }
+    $lower = @($hashes | Where-Object { $_ } | ForEach-Object { $_.ToLower() } | Select-Object -Unique)
+    $vers = @{}
+    $bulkOk = $true
+    for ($i = 0; $i -lt $lower.Count; $i += 200) {
+        $hi = [Math]::Min($i + 199, $lower.Count - 1)
+        $chunk = @($lower[$i..$hi])
+        $body = '{"hashes":[' + (($chunk | ForEach-Object { '"' + $_ + '"' }) -join ',') + '],"algorithm":"sha1"}'
+        try {
+            $resp = Invoke-RestMethod -Uri 'https://api.modrinth.com/v2/version_files' -Method Post -Body $body -ContentType 'application/json' -UserAgent 'HileKiran/1.0' -TimeoutSec 30 -ErrorAction Stop
+            if ($resp) { foreach ($p in $resp.PSObject.Properties) { if ($p.Value -and $p.Value.project_id) { $vers[$p.Name.ToLower()] = [string]$p.Value.project_id } } }
+        } catch { $bulkOk = $false }
+    }
+    if (-not $bulkOk) {
+        # toplu sorgu basarisiz: eski (tek tek) yontem, 4 ardisik hatada ag kapanir
+        foreach ($h in $lower) {
+            if (-not $script:MmNet) { break }
+            $v = Get-MmVerify $h
+            if ($v.By) { $out[$h.ToUpper()] = $v }
+        }
+        return $out
+    }
+    $projInfo = @{}
+    $projIds = @($vers.Values | Select-Object -Unique)
+    for ($i = 0; $i -lt $projIds.Count; $i += 100) {
+        $hi = [Math]::Min($i + 99, $projIds.Count - 1)
+        $c = @($projIds[$i..$hi])
+        $idsJson = '[' + (($c | ForEach-Object { '"' + $_ + '"' }) -join ',') + ']'
+        try {
+            $pr = Invoke-RestMethod -Uri ('https://api.modrinth.com/v2/projects?ids=' + [uri]::EscapeDataString($idsJson)) -UserAgent 'HileKiran/1.0' -TimeoutSec 30 -ErrorAction Stop
+            foreach ($pj in @($pr)) { if ($pj -and $pj.id) { $projInfo[[string]$pj.id] = $pj } }
+        } catch {}
+    }
+    $rest = New-Object System.Collections.Generic.List[string]
+    foreach ($h in $lower) {
+        if ($vers.ContainsKey($h) -and $projInfo.ContainsKey($vers[$h])) {
+            $pj = $projInfo[$vers[$h]]
+            $out[$h.ToUpper()] = @{ Name = [string]$pj.title; Slug = [string]$pj.slug; By = 'Modrinth' }
+        } else { [void]$rest.Add($h) }
+    }
+    if ($rest.Count -gt 0 -and $script:MmNet) {
+        $mbRes = $null
+        if ($mmCsOk) {
+            $urls = [string[]]@($rest | ForEach-Object { 'https://megabase.vercel.app/api/query?hash=' + $_.ToUpper() })
+            try { $mbRes = [HkMm]::FetchMany($urls, 8000, 8) } catch {}
+        }
+        if ($mbRes) {
+            $okN = 0
+            for ($k = 0; $k -lt $rest.Count; $k++) {
+                $s = $mbRes[$k]
+                if ($null -eq $s) { continue }
+                $okN++
+                if (-not $s) { continue }
+                try {
+                    $j = $s | ConvertFrom-Json -ErrorAction Stop
+                    if ($j -and -not $j.error -and $j.data -and $j.data.name) { $out[$rest[$k].ToUpper()] = @{ Name = [string]$j.data.name; Slug = ''; By = 'Megabase' } }
+                } catch {}
+            }
+            if ($okN -eq 0) { $script:MmNet = $false }
+        } else {
+            foreach ($h in $rest) {
+                if (-not $script:MmNet) { break }
+                $mb = Invoke-MmWeb ('https://megabase.vercel.app/api/query?hash=' + $h.ToUpper())
+                if ($mb -and -not $mb.error -and $mb.data -and $mb.data.name) { $out[$h.ToUpper()] = @{ Name = [string]$mb.data.name; Slug = ''; By = 'Megabase' } }
+            }
+        }
+    }
+    return $out
+}
+
+$mmVerified = New-Object System.Collections.Generic.List[string]
+$mmUnknown = New-Object System.Collections.Generic.List[string]
+$mmCntSus = 0; $mmCntByp = 0; $mmCntObf = 0
+$mmWhite = @('viafabricplus', 'viafabricversion')
+$mmThr = [Math]::Max(2, [Math]::Min(4, [Math]::Max(2, [int]([Environment]::ProcessorCount / 2))))
+$mmPaths = [string[]]@($mmJars | ForEach-Object { $_.FullName })
+
+# 1) SHA1 (paralel)
+$mmHashMap = @{}
+if ($mmJars.Count -gt 0) {
+    Set-Frac 0.02 'sha1 hesaplaniyor'
+    $hs = $null
+    if ($mmCsOk) { try { $hs = [HkMm]::Sha1Many($mmPaths, $mmThr) } catch {} }
+    for ($i = 0; $i -lt $mmPaths.Count; $i++) {
+        $h = ''
+        if ($hs -and $hs[$i]) { $h = [string]$hs[$i] } else { try { $h = (Get-FileHash -LiteralPath $mmPaths[$i] -Algorithm SHA1 -ErrorAction Stop).Hash } catch {} }
+        $mmHashMap[$mmPaths[$i]] = $h
+    }
+}
+# 2) Hash dogrulama (toplu)
+Set-Frac 0.05 'hash dogrulamasi (toplu)'
+$mmVerMap = @{}
+if ($mmJars.Count -gt 0) { $mmVerMap = Get-MmVerifyMany ([string[]]@($mmHashMap.Values | Where-Object { $_ })) }
+# 3) Icerik taramasi (tek gecis, paralel); buyuk dosyalar once
+$mmScanRes = @{}
+if ($mmCsOk) {
+    $mmToScan = New-Object System.Collections.Generic.List[object]
+    foreach ($jar in $mmJars) {
+        $h0 = $mmHashMap[$jar.FullName]
+        if ($h0 -and $mmVerMap.ContainsKey($h0) -and ($mmWhite -contains ([string]$mmVerMap[$h0].Slug).ToLower())) { continue }
+        if ($jar.Length -gt 157286400) { continue }
+        [void]$mmToScan.Add($jar)
+    }
+    $mmSorted = @($mmToScan | Sort-Object Length -Descending)
+    Log ('   ' + $mmSorted.Count + ' mod tek gecisli paralel motorla taraniyor (' + $mmThr + ' is parcacigi)...') 'DarkGray'
+    $mmSw = [Diagnostics.Stopwatch]::StartNew()
+    for ($ci = 0; $ci -lt $mmSorted.Count; $ci += 24) {
+        $hi = [Math]::Min($ci + 23, $mmSorted.Count - 1)
+        $paths = [string[]]@($mmSorted[$ci..$hi] | ForEach-Object { $_.FullName })
+        $res = $null
+        try { $res = [HkMm]::ScanMany($paths, [string[]]@($mmPatSorted), [string[]]@($mmStrSorted), $script:MmFwRx.ToString(), [string[]]@($script:MmFwPool), $mmThr) } catch {}
+        if ($res) { for ($k = 0; $k -lt $paths.Count; $k++) { $mmScanRes[$paths[$k]] = $res[$k] } }
+        $dn = [Math]::Min($ci + 24, $mmSorted.Count)
+        Set-Frac (0.1 + 0.9 * $dn / [Math]::Max(1, $mmSorted.Count)) ('mod ' + $dn + '/' + $mmSorted.Count)
+        Start-Sleep -Milliseconds 120
+        Write-Host ('   mod ilerleme: ' + $dn + '/' + $mmSorted.Count + ' (' + [int]$mmSw.Elapsed.TotalSeconds + ' sn)') -ForegroundColor DarkGray
+    }
+}
+foreach ($jar in $mmJars) {
+    $jp = $jar.FullName
+    $hash = $mmHashMap[$jp]
+    $ver = @{ Name = ''; Slug = ''; By = '' }
+    if ($hash -and $mmVerMap.ContainsKey($hash)) { $ver = $mmVerMap[$hash] }
+    $isVer = [bool]$ver.By
+    if ($isVer -and ($mmWhite -contains ([string]$ver.Slug).ToLower())) { [void]$mmVerified.Add($ver.Name + ' -> ' + $jar.Name); continue }
+    if ($jar.Length -gt 157286400) {
+        Add-F -Kaynak 'Mod klasoru analizi' -Ad ('mod: ' + $jar.Name.ToLower()) -Yol $jp -Skor 12 -Son $jar.LastWriteTime -Ilk $jar.CreationTime -Var 'Evet' -Not 'mod 150 MB ustu, derin tarama atlandi'
+        continue
+    }
+    $ms = $null; $bf = @(); $of = @()
+    if ($mmCsOk) {
+        $rr = $null
+        if ($mmScanRes.ContainsKey($jp)) { $rr = $mmScanRes[$jp] }
+        if ($rr) {
+            $ms = @{ Patterns = @($rr.Patterns); Strings = @($rr.Strings); Fullwidth = @($rr.Fullwidth) }
+            $bf = @($rr.Bypass)
+            $of = @($rr.Obf)
+        }
+    } else {
+        try { $ms = Invoke-ModScan $jp } catch {}
+        try { $bf = @(Invoke-MmBypassScan $jp) } catch {}
+        try { $of = @(Invoke-MmObfScan $jp) } catch {}
+    }
+    $hitSet = New-Object 'System.Collections.Generic.HashSet[string]'
+    $fwList = @()
+    if ($ms) {
+        foreach ($x in $ms.Patterns) { [void]$hitSet.Add($x) }
+        foreach ($x in $ms.Strings) { [void]$hitSet.Add($x) }
+        $fwList = @($ms.Fullwidth)
+    }
+    $hitN = $hitSet.Count
+    $fwN = $fwList.Count
+    $sc1 = 0
+    if ($hitN -ge 6) { $sc1 = 80 } elseif ($hitN -ge 4) { $sc1 = 65 } elseif ($hitN -eq 3) { $sc1 = 55 } elseif ($hitN -eq 2) { $sc1 = 45 } elseif ($hitN -eq 1) { $sc1 = 30 }
+    if ($fwN -gt 0) { $sc1 = [Math]::Max($sc1, 50); if ($fwN -ge 2) { $sc1 += 10 } }
+    $sc2 = 0
+    foreach ($f in $bf) { $fs2 = Get-MmFlagScore $f; if ($fs2 -gt $sc2) { $sc2 = $fs2 } }
+    if ($bf.Count -gt 1) { $sc2 += 5 * ($bf.Count - 1) }
+    $sc3 = 0
+    foreach ($f in $of) { $fs3 = Get-MmFlagScore $f; if ($fs3 -gt $sc3) { $sc3 = $fs3 } }
+    if ($of.Count -gt 1) { $sc3 += 3 * ($of.Count - 1) }
+    $cats = 0
+    if ($sc1 -gt 0) { $cats++; $mmCntSus++ }
+    if ($sc2 -gt 0) { $cats++; $mmCntByp++ }
+    if ($sc3 -gt 0) { $cats++; $mmCntObf++ }
+    $why = New-Object System.Collections.Generic.List[string]
+    if ($isVer) { [void]$why.Add($ver.By + ' hash eslesmesi: ' + $ver.Name) }
+    if ($hitN -gt 0) { [void]$why.Add('hile stringleri/desenleri (' + $hitN + '): ' + ((@($hitSet | Select-Object -First 15)) -join ', ')) }
+    if ($fwN -gt 0) { [void]$why.Add('tam genislikli (fullwidth) unicode stringler: ' + ((@($fwList | Select-Object -First 10)) -join ', ')) }
+    if ($bf.Count -gt 0) { [void]$why.Add('BYPASS/ENJEKSIYON: ' + ($bf -join ' | ')) }
+    if ($of.Count -gt 0) {
+        [void]$why.Add('OBFUSCATION: ' + ($of -join ' | '))
+        Add-ObfNote $jp ('mod obfuscation izleri: ' + ((@($of | Select-Object -First 3)) -join ' | '))
+    }
+    $src = Get-MmSource $jp
+    if ($cats -eq 0) {
+        if ($isVer) { [void]$mmVerified.Add($ver.Name + ' -> ' + $jar.Name) }
+        else {
+            [void]$mmUnknown.Add($jar.Name + $(if ($src) { ' (kaynak: ' + $src + ')' } else { '' }))
+            $usc = 12
+            if ($src -match '^(Discord|MediaFire|MEGA|Dropbox|Google Drive|AnyDesk)$') { $usc = 27 }
+            $unote = 'Modrinth/Megabase te hash eslesmesi yok (ozel/eski/degistirilmis mod olabilir)'
+            if (-not $script:MmNet) { $unote = 'hash dogrulamasi yapilamadi (ag kapali/erisilemedi)' }
+            if ($src) { $unote = $unote + ' | indirme kaynagi: ' + $src }
+            Add-F -Kaynak 'Mod klasoru analizi' -Ad ('mod: ' + $jar.Name.ToLower()) -Yol $jp -Skor $usc -Son $jar.LastWriteTime -Ilk $jar.CreationTime -Var 'Evet' -Not $unote
+        }
+        continue
+    }
+    $total = [Math]::Max($sc1, [Math]::Max($sc2, $sc3)) + 8 * ($cats - 1)
+    if ($isVer) { $total -= 25; [void]$why.Add('(dogrulanmis modda skor 25 dusuruldu; yine de kontrol et)') }
+    if ($total -lt 10) { $total = 10 }
+    if ($total -gt 100) { $total = 100 }
+    if (-not $isVer) { [void]$mmUnknown.Add($jar.Name + $(if ($src) { ' (kaynak: ' + $src + ')' } else { '' })) }
+    if ($src) { [void]$why.Add('indirme kaynagi: ' + $src) }
+    Add-F -Kaynak 'Mod klasoru analizi' -Ad ('mod: ' + $jar.Name.ToLower()) -Yol $jp -Skor $total -Son $jar.LastWriteTime -Ilk $jar.CreationTime -Var 'Evet' -Not (($why -join ' ; ') + ' | SHA1: ' + $hash)
+}
+Log ('   ' + $mmJars.Count + ' mod incelendi: ' + $mmVerified.Count + ' dogrulanmis, ' + $mmUnknown.Count + ' bilinmeyen, ' + $mmCntSus + ' supheli string, ' + $mmCntByp + ' bypass/enjeksiyon, ' + $mmCntObf + ' obfuscated.') 'DarkGray'
+if ($mmJars.Count -gt 0 -and -not $script:MmNet -and $env:HK_NONET -ne '1') { Log '   UYARI: ag erisimi basarisiz oldu, hash dogrulamasi yarida birakildi (bilinmeyen sayisi sisik olabilir).' 'DarkYellow' }
+foreach ($vm in @($mmVerified | Select-Object -First 40)) { Log ('   dogrulanmis: ' + $vm) 'DarkGray' }
+foreach ($um in @($mmUnknown | Select-Object -First 40)) { Log ('   bilinmeyen : ' + $um) 'DarkGray' }
+
+# ---- calisan Java: JVM agent / enjeksiyon bayraklari ----
+$legitAgents = 'jmxremote|yjp|jrebel|newrelic|jacoco|theseus'
+foreach ($jpr in @(Get-CimInstance Win32_Process -Filter "Name='javaw.exe' OR Name='java.exe'" -ErrorAction SilentlyContinue)) {
+    $cl = [string]$jpr.CommandLine
+    if (-not $cl) { continue }
+    foreach ($am in [regex]::Matches($cl, '-javaagent:(?:"([^"]+)"|([^\s"]+))')) {
+        $ap = $am.Groups[1].Value
+        if (-not $ap) { $ap = $am.Groups[2].Value }
+        $eq = $ap.IndexOf('=')
+        if ($eq -gt 0) { $ap = $ap.Substring(0, $eq) }
+        $an = ''
+        try { $an = [IO.Path]::GetFileName($ap) } catch {}
+        if ($an -match $legitAgents) { continue }
+        Add-Sys ('JVM agent: -javaagent:' + $an) 40 'Calisan Java a -javaagent ile dis kod yuklenmis (Lunar/Badlion gibi launcher lar da kullanabilir; dosyanin ne oldugunu kontrol et).' $jpr.CreationDate ('PID ' + $jpr.ProcessId + ' | yol: ' + $ap)
+    }
+    foreach ($sf in @(
+        @('-Xbootclasspath/p:', 'bootstrap classpath in basina ekler, cekirdek Java siniflarini degistirebilir', 45),
+        @('-Xbootclasspath/a:', 'bootstrap classpath e ekler, class loader in altina kod enjekte eder', 45),
+        @('-agentlib:jdwp', 'JDWP hata ayiklama ajani, uzaktan debug acik', 35),
+        @('-agentpath:', 'yerel (native) ajan yuklenmis, Java sandbox ini atlar', 45)
+    )) {
+        if ($cl.IndexOf($sf[0], [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            Add-Sys ('Supheli JVM parametresi: ' + $sf[0]) $sf[2] ('Calisan Java: ' + $sf[1]) $jpr.CreationDate ('PID ' + $jpr.ProcessId)
+        }
+    }
+}
+Show-Section
+
 # ---------------------------------------------------------------------
-Step '[10/16] Dosya taramasi (Downloads, Masaustu, Belgeler, Temp, AppData/Roaming, launcher klasorleri)...'
+Step '[11/17] Dosya taramasi (Downloads, Masaustu, Belgeler, Temp, AppData/Roaming, launcher klasorleri)...'
 Start-Sec
 Add-Root (Get-DownloadsPath)
 Add-Root ([Environment]::GetFolderPath('Desktop'))
@@ -2871,7 +4032,7 @@ foreach ($evId in @(4104, 4103)) {
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[11/16] Gorev Zamanlayici (Task Scheduler), WMI abonelikleri, StartUp klasoru...'
+Step '[12/17] Gorev Zamanlayici (Task Scheduler), WMI abonelikleri, StartUp klasoru...'
 Start-Sec
 $taskRoot2 = $env:WINDIR + '\System32\Tasks'
 $taskFiles = @{}
@@ -3029,7 +4190,7 @@ Log ('   StartUp klasorlerinde ' + $suCount + ' oge incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[12/16] Kayit defteri izleri (OpenSavePidlMRU, MountedDevices, VolumeInfoCache, DirectInput, WordWheelQuery, Uyumluluk, WinRAR, MuiCache)...'
+Step '[13/17] Kayit defteri izleri (OpenSavePidlMRU, MountedDevices, VolumeInfoCache, DirectInput, WordWheelQuery, Uyumluluk, WinRAR, MuiCache)...'
 Start-Sec
 # --- Dosya Ac/Kaydet diyalogu gecmisi: OpenSavePidlMRU (uzantilar + dosya adlari), LastVisitedPidlMRU (diyalogu acan programlar) ---
 $mruBase = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\ComDlg32'
@@ -3198,7 +4359,7 @@ try {
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[13/16] Bellek (RAM) string taramasi: ctfmon, sihost, explorer, DPS, Dnscache... (birkac dakika surebilir)'
+Step '[14/17] Bellek (RAM) string taramasi: ctfmon, sihost, explorer, DPS, Dnscache... (birkac dakika surebilir)'
 Start-Sec
 $script:MemOk = 0
 $script:MemFail = 0
@@ -3453,7 +4614,7 @@ function Eval-ProxyDll([string]$p, [string]$kaynak, $tm, [string]$ctx) {
 }
 
 # =====================================================================
-Step '[13+/16] A) JAVAW/JAVA Prefetch: calisma sirasinda acilan dosyalar (.jar ve uzantisi degistirilmis jar)...'
+Step '[14+/17] A) JAVAW/JAVA Prefetch: calisma sirasinda acilan dosyalar (.jar ve uzantisi degistirilmis jar)...'
 Start-Sec
 $jvPf = @($pfFiles | Where-Object { $_.Name -match '(?i)^JAVAW?\.EXE-[0-9A-F]{8}\.pf$' })
 if ($jvPf.Count -eq 0 -and ((Test-Path -LiteralPath ($env:APPDATA + '\.minecraft')) -or $script:GameDirs.Count -gt 0)) {
@@ -3465,6 +4626,8 @@ foreach ($jpf in $jvPf) {
     $info = Read-Prefetch $jpf.FullName
     $last = $jpf.LastWriteTime
     $runsTxt = ''
+    Log ('   ' + $jpf.Name + ': ' + @($info.Runs).Count + ' calisma saati, ' + @($info.Paths).Count + ' dosya yolu okundu') 'DarkGray'
+    if (@($info.Paths).Count -eq 0) { Log '     (bu Prefetch dosyasindan yol okunamadi: bozuk/bos olabilir veya yardimci modul derlenmemis)' 'DarkYellow' }
     if ($info.Runs.Count -gt 0) {
         $sorted = @($info.Runs | Sort-Object -Descending)
         $last = $sorted[0]
@@ -3527,7 +4690,7 @@ Log ('   ' + $jvPf.Count + ' java/javaw Prefetch dosyasi, ' + $jvCount + ' dosya
 Show-Section
 
 # =====================================================================
-Step '[13+/16] B) JavaLauncher.log: java -jar ile baslatilan dosyalar (uzantisi degistirilmis jar)...'
+Step '[14+/17] B) JavaLauncher.log: java -jar ile baslatilan dosyalar (uzantisi degistirilmis jar)...'
 Start-Sec
 $tempDirs = New-Object System.Collections.Generic.List[string]
 foreach ($t0 in @($env:TEMP, ($env:WINDIR + '\Temp'))) { if ($t0) { [void]$tempDirs.Add($t0) } }
@@ -3573,7 +4736,7 @@ if ($jlSeenF.Count -eq 0) { Log '   JavaLauncher.log bulunamadi (bu dosya her bi
 Show-Section
 
 # =====================================================================
-Step '[13+/16] C) Bellek: DcomLaunch (-jar), explorer (.jar), conhost (-jar) taramasi (System Informer mantigi)...'
+Step '[14+/17] C) Bellek: DcomLaunch (-jar), explorer (.jar), conhost (-jar) taramasi (System Informer mantigi)...'
 Start-Sec
 if (-not $script:HkOk) {
     Log '   yardimci modul derlenemedi, bellek taramasi atlandi.' 'DarkYellow'
@@ -3587,7 +4750,7 @@ if (-not $script:HkOk) {
 Show-Section
 
 # =====================================================================
-Step '[13+/16] D) PowerShell: komut gecmisi, olay gunlukleri (400/403/600/800/4104), profil scriptleri...'
+Step '[14+/17] D) PowerShell: komut gecmisi, olay gunlukleri (400/403/600/800/4104), profil scriptleri...'
 Start-Sec
 $psSeen = @{}
 foreach ($ud in $script:HkUserDirs) {
@@ -3706,7 +4869,7 @@ foreach ($pf2 in $profFiles) {
 Show-Section
 
 # =====================================================================
-Step '[13+/16] E) USN: ConsoleHost_history.txt ve JavaLauncher.log silinme kayitlari...'
+Step '[14+/17] E) USN: ConsoleHost_history.txt ve JavaLauncher.log silinme kayitlari...'
 Start-Sec
 $usnHit = 0
 foreach ($dl in $script:FixedNtfs) {
@@ -3734,7 +4897,7 @@ if ($usnHit -eq 0) { Log '   USN gunlugunde ilgili silme kaydi bulunamadi.' 'Dar
 Show-Section
 
 # =====================================================================
-Step '[13+/16] F) ENB / ReShade ve proxy dll (d3d9/d3d10/d3d11/dxgi/opengl32...) + grafik modu loglari...'
+Step '[14+/17] F) ENB / ReShade ve proxy dll (d3d9/d3d10/d3d11/dxgi/opengl32...) + grafik modu loglari...'
 Start-Sec
 $pdRoots = New-Object System.Collections.Generic.List[string]
 function Add-PdRoot([string]$r) {
@@ -3835,7 +4998,7 @@ Show-Section
 # ===================== EK MODUL SONU =====================
 
 # =====================================================================
-Step '[13+/16] G) Dizinlenmis konumlar (Searches\*.search-ms, "Indexed Locations")...'
+Step '[14+/17] G) Dizinlenmis konumlar (Searches\*.search-ms, "Indexed Locations")...'
 Start-Sec
 $isCount = 0
 $isSeen = @{}
@@ -3928,7 +5091,7 @@ Log ('   ' + $isCount + ' dizinlenmis konum incelendi.') 'DarkGray'
 Show-Section
 
 # =====================================================================
-Step '[13+/16] H) Process modulleri (System Informer > Modules mantigi): sistem DLL taklidi, AppData/Temp DLL...'
+Step '[14+/17] H) Process modulleri (System Informer > Modules mantigi): sistem DLL taklidi, AppData/Temp DLL...'
 Start-Sec
 $sysDll = @{}
 foreach ($sdp in @(($env:WINDIR + '\System32'), ($env:WINDIR + '\SysWOW64'))) {
@@ -3992,7 +5155,7 @@ Show-Section
 # BYPASS GECMISI MODULU: gecmiste yapilmis iz silme/bypass islemlerinin kalintilarini arar
 # (Sadece OKUR; hicbir seyi silmez/degistirmez.)
 # =====================================================================
-Step '[13+/16] I) BYPASS GECMISI: olay zaman cizelgesi, USN/olay gunlugu temizleme, saat degisikligi, kutu bosaltma, toplu Prefetch silme, BAM karsilastirma...'
+Step '[14+/17] I) BYPASS GECMISI: olay zaman cizelgesi, USN/olay gunlugu temizleme, saat degisikligi, kutu bosaltma, toplu Prefetch silme, BAM karsilastirma...'
 Start-Sec
 function Add-Bt([string]$tur, $zaman) {
     if ($zaman) { [void]$script:Bt.Add([pscustomobject]@{ Tur = $tur; Zaman = [datetime]$zaman }) }
@@ -4212,7 +5375,7 @@ if ($tl.Count -eq 0) { Log '   okunabilen olay yok' 'DarkGray' }
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[14/16] Minecraft loglari (hile modulu isimleri, eski loglar dahil)...'
+Step '[15/17] Minecraft loglari (hile modulu isimleri, eski loglar dahil)...'
 Start-Sec
 $mcMain = $env:APPDATA + '\.minecraft'
 if (Test-Path -LiteralPath $mcMain) {
@@ -4231,6 +5394,7 @@ foreach ($lf in $logs) {
     if (($liN % 10) -eq 0) { Log ('   ' + $liN + '/' + $logs.Count + ' log okundu (%' + [int]($liN * 100 / [Math]::Max(1, $logs.Count)) + ')') 'DarkGray' }
     $txt = Read-LogText $lf.FullName
     if (-not $txt) { continue }
+    if (-not (Get-NameHit $txt $false)) { continue }
     $shown = 0
     foreach ($line in $txt.Split("`n")) {
         if ($shown -ge 3) { break }
@@ -4248,7 +5412,7 @@ Log ('   ' + $logs.Count + ' log dosyasi incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[15/16] USB depolama gecmisi (harici surucuden calistirma ihtimali)...'
+Step '[16/17] USB depolama gecmisi (harici surucuden calistirma ihtimali)...'
 Start-Sec
 $setup = @{}
 foreach ($sf in @(Get-ChildItem -LiteralPath ($env:WINDIR + '\INF') -Filter 'setupapi.dev*.log' -File -Force -ErrorAction SilentlyContinue | Sort-Object LastWriteTime)) {
@@ -4276,7 +5440,7 @@ Log ('   ' + $script:UsbList.Count + ' USB depolama cihazi kaydi bulundu.') 'Dar
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16/16] Windows Defender tespit gecmisi (silinmis/karantinaya alinmis dosyalar)...'
+Step '[17/17] Windows Defender tespit gecmisi (silinmis/karantinaya alinmis dosyalar)...'
 Start-Sec
 $defCount = 0
 try {
@@ -4348,7 +5512,7 @@ function Read-DbBytes([string]$p) {
     return ,$r
 }
 
-Step '[16+/16] J) Tarayici gecmisi: indirilen dosyalar ve ziyaret edilen hile siteleri (Chrome, Edge, Brave, Opera, Firefox)...'
+Step '[17+/17] J) Tarayici gecmisi: indirilen dosyalar ve ziyaret edilen hile siteleri (Chrome, Edge, Brave, Opera, Firefox)...'
 Start-Sec
 $brDbs = New-Object System.Collections.Generic.List[object]
 $brRoots = @(
@@ -4407,7 +5571,7 @@ Log ('   ' + $brScanned + ' tarayici gecmis veritabani incelendi.') 'DarkGray'
 Show-Section
 
 # =====================================================================
-Step '[16+/16] K) Kernel suruculeri, test signing, savunmasiz surucu engeli...'
+Step '[17+/17] K) Kernel suruculeri, test signing, savunmasiz surucu engeli...'
 Start-Sec
 $vulnDrv = @('capcom.sys', 'iqvw64e.sys', 'iqvw32.sys', 'gdrv.sys', 'dbutil_2_3.sys', 'rtcore64.sys', 'rtcore32.sys', 'winio64.sys', 'winio32.sys', 'winring0x64.sys', 'winring0.sys', 'physmem.sys', 'atillk64.sys', 'amifldrv64.sys', 'asmmap64.sys', 'mhyprot2.sys', 'mhyprot3.sys', 'kprocesshacker.sys', 'speedfan.sys', 'ene.sys', 'glckio2.sys')
 $drvCount = 0
@@ -4491,7 +5655,7 @@ function Remove-DbTemp([string]$t) {
 }
 
 # ---------------------------------------------------------------------
-Step '[16+/16] M) BrowserDownloadsView + BrowsingHistoryView mantigi (winsqlite3 ile): ne, nereden, ne zaman indirildi...'
+Step '[17+/17] M) BrowserDownloadsView + BrowsingHistoryView mantigi (winsqlite3 ile): ne, nereden, ne zaman indirildi...'
 Start-Sec
 $sqlCs = @'
 using System;
@@ -4622,7 +5786,7 @@ if (-not $script:SqlOk) {
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] N) ShellBags: gezilen klasorler (silinmis olsa bile) - ShellBagsView mantigi...'
+Step '[17+/17] N) ShellBags: gezilen klasorler (silinmis olsa bile) - ShellBagsView mantigi...'
 Start-Sec
 function Get-ShellName([byte[]]$b) {
     if ($null -eq $b -or $b.Length -lt 8) { return $null }
@@ -4703,7 +5867,7 @@ Log ('   ' + $script:SbCount + ' ShellBag klasor kaydi cozuldu (isim cikarma sez
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] O) Yuklu programlar listesi (UninstallView mantigi)...'
+Step '[17+/17] O) Yuklu programlar listesi (UninstallView mantigi)...'
 Start-Sec
 $unToolRx = '(?i)cheat ?engine|process ?hacker|system ?informer|x64dbg|x32dbg|ollydbg|dnspy|extreme ?injector|autohotkey|auto ?clicker|tinytask|jitbit|op ?auto ?clicker'
 $unCount = 0
@@ -4737,7 +5901,7 @@ Log ('   ' + $unCount + ' yuklu program kaydi incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] P) Windows Defender olay gunlugu ve MPLog (WinDefLogView mantigi)...'
+Step '[17+/17] P) Windows Defender olay gunlugu ve MPLog (WinDefLogView mantigi)...'
 Start-Sec
 $defEv = @()
 try { $defEv = @(Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-Windows Defender/Operational'; Id = 1116, 1117, 1118, 1119, 5001, 5007, 5010, 5012, 5013 } -MaxEvents 800 -ErrorAction Stop) } catch {}
@@ -4795,6 +5959,7 @@ Log ('   ' + $defEv.Count + ' Defender olayi incelendi.') 'DarkGray'
 
 $mpDir = $env:ProgramData + '\Microsoft\Windows Defender\Support'
 $mpFiles = @()
+if (-not (Test-Path -LiteralPath $mpDir)) { Log ('   Defender Support klasoru yok/erisilemiyor: ' + $mpDir + ' (Defender kapali veya baska antivirus olabilir; yonetici degilse de okunamaz)') 'DarkYellow' }
 if (Test-Path -LiteralPath $mpDir) { $mpFiles = @(Get-ChildItem -LiteralPath $mpDir -Filter 'MPLog-*.log' -File -Force -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 4) }
 $mpPat = '(?i)(?:\\Device\\HarddiskVolume\d+|[A-Za-z]:)\\[^\r\n"<>|*?]{3,260}?\.(?:exe|dll|jar|bat|ps1|scr|cmd|vbs|msi)(?![A-Za-z0-9])'
 $mpRx = New-Object System.Text.RegularExpressions.Regex($mpPat, [System.Text.RegularExpressions.RegexOptions]::Compiled, [TimeSpan]::FromSeconds(2))
@@ -4826,7 +5991,7 @@ Log ('   ' + $mpFiles.Count + ' MPLog dosyasindan ' + $mpN + ' farkli dosya yolu
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] Q) Yuklu DLL analizi: tum process ler (LoadedDllsView mantigi)...'
+Step '[17+/17] Q) Yuklu DLL analizi: tum process ler (LoadedDllsView mantigi)...'
 Start-Sec
 $ldAll = @{}
 foreach ($gp in @(Get-Process -ErrorAction SilentlyContinue)) {
@@ -4887,7 +6052,7 @@ Log ('   ' + $ldAll.Count + ' farkli sistem disi DLL incelendi.') 'DarkGray'
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] R) Olay gunlukleri: servis/surucu kurulumu (7045), process baslatma (4688), uygulama cokmeleri (1000) - LastActivityView mantigi...'
+Step '[17+/17] R) Olay gunlukleri: servis/surucu kurulumu (7045), process baslatma (4688), uygulama cokmeleri (1000) - LastActivityView mantigi...'
 Start-Sec
 $r7 = 0
 $r88 = 0
@@ -4960,7 +6125,7 @@ Log ('   7045: ' + $r7 + ', 4688: ' + $r88 + ', 1000: ' + $r10 + ' kayit incelen
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] S) Jar/zip ICERIK taramasi: class stringleri, ic ice jar, istemci markalari, paket yollari, obfuscation (isimsiz hileler icin)...'
+Step '[17+/17] S) Jar/zip ICERIK taramasi: class stringleri, ic ice jar, istemci markalari, paket yollari, obfuscation (isimsiz hileler icin)...'
 Start-Sec
 function Scan-Zip($zip, $r, [int]$depth) {
     foreach ($e in $zip.Entries) {
@@ -5085,7 +6250,7 @@ if ($jarCsOk) {
     Write-Host ('   ' + $jarCands.Count + ' jar/zip dosyasi derlenmis hizli tarayici ile taraniyor (dosya basina en fazla 45 sn)...') -ForegroundColor DarkGray
     if ($jarCloud -gt 0) { Write-Host ('   ' + $jarCloud + ' bulut (OneDrive vb. indirilmemis) dosya atlandi: acilmasi dosyayi indirtir.') -ForegroundColor DarkYellow }
     $jarSw = [Diagnostics.Stopwatch]::StartNew()
-    $jarThreads = [Math]::Max(2, [Math]::Min(8, [Environment]::ProcessorCount))
+    $jarThreads = [Math]::Max(2, [Math]::Min(4, [Math]::Max(2, [int]([Environment]::ProcessorCount / 2))))
     for ($ci = 0; $ci -lt $jarCands.Count; $ci += 24) {
         $hi = [Math]::Min($ci + 23, $jarCands.Count - 1)
         $chunk = @($jarCands[$ci..$hi])
@@ -5104,6 +6269,7 @@ if ($jarCsOk) {
             }
         }
         $doneN = [Math]::Min($ci + 24, $jarCands.Count)
+        Set-Frac ($doneN / [Math]::Max(1, $jarCands.Count)) ('jar/zip ' + $doneN + '/' + $jarCands.Count)
         Write-Host ('   jar/zip ilerleme: ' + $doneN + '/' + $jarCands.Count + ' (' + [int]$jarSw.Elapsed.TotalSeconds + ' sn)') -ForegroundColor DarkGray
     }
 }
@@ -5194,6 +6360,7 @@ $jobSw = [Diagnostics.Stopwatch]::StartNew()
 $timedOutJars = New-Object System.Collections.Generic.List[string]
 foreach ($jj in $jarJobs) {
     $jobDone++
+    Set-Frac ($jobDone / [Math]::Max(1, $jobTotal)) ('jar/zip ' + $jobDone + '/' + $jobTotal)
     if (($jobDone % 10) -eq 0 -or $jobDone -eq $jobTotal) { Write-Host ('   jar/zip ilerleme: ' + $jobDone + '/' + $jobTotal + ' (' + [int]$jobSw.Elapsed.TotalSeconds + ' sn)') -ForegroundColor DarkGray }
     if (-not $jj.H.AsyncWaitHandle.WaitOne(120000)) {
         [void]$timedOutJars.Add($jj.Path)
@@ -5269,7 +6436,7 @@ Log ('   ' + $jdN + ' jar/zip dosyasinin icerigi (ic ice jar dahil) okundu.') 'D
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] T) Bellek taramasi: Java ve kullanici klasorlerinden calisan process lerde hile modul isimleri (hile ACIKKEN calistir)...'
+Step '[17+/17] T) Bellek taramasi: Java ve kullanici klasorlerinden calisan process lerde hile modul isimleri (hile ACIKKEN calistir)...'
 Start-Sec
 if (-not $script:HkOk) {
     Log '   yardimci modul derlenemedi, bellek taramasi atlandi.' 'DarkYellow'
@@ -5313,13 +6480,159 @@ if (-not $script:HkOk) {
 Show-Section
 
 # ---------------------------------------------------------------------
-Step '[16+/16] U) Dosya ICERIK taramasi: exe/dll (JNI, enjektor, modul stringleri) ve ayar dosyalari (cfg/json/toml/txt)...'
+Step '[17+/17] U) Dosya ICERIK taramasi: exe/dll (JNI, enjektor, modul stringleri) ve ayar dosyalari (cfg/json/toml/txt)...'
 Start-Sec
 $jniRx = New-Object System.Text.RegularExpressions.Regex ('JNI_GetCreatedJavaVMs|GetCreatedJavaVMs|jvmtiEnv|AttachCurrentThread', [System.Text.RegularExpressions.RegexOptions]::None)
 $mcRx = New-Object System.Text.RegularExpressions.Regex ('net/minecraft/client|net\.minecraft\.client|class_310|class_746|Lnet/minecraft/|net/minecraft/class_|com/mojang/blaze3d', [System.Text.RegularExpressions.RegexOptions]::None)
 $injRx1 = New-Object System.Text.RegularExpressions.Regex ('WriteProcessMemory', [System.Text.RegularExpressions.RegexOptions]::None)
 $injRx2 = New-Object System.Text.RegularExpressions.Regex ('CreateRemoteThread|NtCreateThreadEx|RtlCreateUserThread|QueueUserAPC|SetWindowsHookEx', [System.Text.RegularExpressions.RegexOptions]::None)
 $injRx3 = New-Object System.Text.RegularExpressions.Regex ('javaw|java\.exe|Minecraft', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+$binCs = @'
+using System;
+using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Threading.Tasks;
+public class HkBinRes {
+    public bool Ok;
+    public string[] Terms = new string[0];
+    public string[] Brands = new string[0];
+    public bool Jni;
+    public bool Mc;
+    public bool Inj;
+    public string PackReason = "";
+    public int PackBonus;
+}
+public static class HkBin {
+    static Dictionary<string, Regex> Cache = new Dictionary<string, Regex>();
+    static Regex RxPack = new Regex(@"^\.?(upx\d|vmp\d|themida|winlice|enigma\d?|aspack|adata|petite|mpress\d|nsp\d|boom|perplex|pec\d?|yoda|rlpack|kkrunchy|neolite|molebox|obsidium|armadillo|svkp|ezip)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    static string[] JniN = new string[] { "JNI_GetCreatedJavaVMs", "GetCreatedJavaVMs", "jvmtiEnv", "AttachCurrentThread" };
+    static string[] McN = new string[] { "net/minecraft/client", "net.minecraft.client", "class_310", "class_746", "Lnet/minecraft/", "net/minecraft/class_", "com/mojang/blaze3d" };
+    static string[] Inj2 = new string[] { "CreateRemoteThread", "NtCreateThreadEx", "RtlCreateUserThread", "QueueUserAPC", "SetWindowsHookEx" };
+    static string[] Inj3 = new string[] { "javaw", "java.exe", "Minecraft" };
+    static Regex Get(string p) {
+        lock (Cache) {
+            Regex r;
+            if (!Cache.TryGetValue(p, out r)) { r = new Regex(p, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled); Cache[p] = r; }
+            return r;
+        }
+    }
+    static bool Any(string t, string[] nd, StringComparison c) {
+        foreach (string s in nd) { if (t.IndexOf(s, c) >= 0) return true; }
+        return false;
+    }
+    static void Harvest(Regex rx, string text, HashSet<string> set) {
+        foreach (Match m in rx.Matches(text)) { set.Add(m.Value.ToLowerInvariant().Replace(" ", "")); }
+    }
+    static double Entropy(byte[] b, int max) {
+        if (b == null || b.Length == 0) return 0.0;
+        int n = Math.Min(b.Length, max);
+        long[] cnt = new long[256];
+        for (int i = 0; i < n; i++) cnt[b[i]]++;
+        double h = 0.0;
+        for (int i = 0; i < 256; i++) {
+            if (cnt[i] == 0) continue;
+            double p = (double)cnt[i] / n;
+            h -= p * Math.Log(p, 2.0);
+        }
+        return h;
+    }
+    static List<string> PeSections(byte[] b) {
+        List<string> r = new List<string>();
+        try {
+            if (b == null || b.Length < 256 || b[0] != 0x4D || b[1] != 0x5A) return r;
+            int pe = BitConverter.ToInt32(b, 0x3C);
+            if (pe < 0 || pe + 24 > b.Length) return r;
+            if (b[pe] != 0x50 || b[pe + 1] != 0x45) return r;
+            int nsec = BitConverter.ToUInt16(b, pe + 6);
+            int optSize = BitConverter.ToUInt16(b, pe + 20);
+            int sec = pe + 24 + optSize;
+            for (int i = 0; i < nsec && i < 40; i++) {
+                int o = sec + i * 40;
+                if (o + 8 > b.Length) break;
+                r.Add(Encoding.ASCII.GetString(b, o, 8).TrimEnd('\0'));
+            }
+        } catch { }
+        return r;
+    }
+    static string[] ToArr(HashSet<string> h) { string[] a = new string[h.Count]; h.CopyTo(a); return a; }
+    public static HkBinRes ScanBin(string path, Regex term, Regex brand) {
+        HkBinRes r = new HkBinRes();
+        byte[] b = null;
+        try { b = File.ReadAllBytes(path); } catch { return r; }
+        if (b == null) return r;
+        r.Ok = true;
+        string t = Encoding.GetEncoding(28591).GetString(b);
+        r.Jni = Any(t, JniN, StringComparison.Ordinal);
+        r.Mc = Any(t, McN, StringComparison.Ordinal);
+        HashSet<string> tk = new HashSet<string>();
+        HashSet<string> bk = new HashSet<string>();
+        Harvest(term, t, tk);
+        Harvest(brand, t, bk);
+        if (b.Length < 8388608) {
+            string tu = Encoding.Unicode.GetString(b);
+            Harvest(term, tu, tk);
+            Harvest(brand, tu, bk);
+        }
+        r.Inj = (t.IndexOf("WriteProcessMemory", StringComparison.Ordinal) >= 0) && Any(t, Inj2, StringComparison.Ordinal) && Any(t, Inj3, StringComparison.OrdinalIgnoreCase);
+        r.Terms = ToArr(tk);
+        r.Brands = ToArr(bk);
+        if (b.Length >= 4096) {
+            List<string> pk = new List<string>();
+            foreach (string sn in PeSections(b)) { if (RxPack.IsMatch(sn)) pk.Add(sn); }
+            double ent = Entropy(b, 8388608);
+            List<string> parts = new List<string>();
+            int bonus = 0;
+            if (pk.Count > 0) { parts.Add("paketleyici/koruyucu bolum adlari: " + string.Join(", ", pk.ToArray())); bonus = 25; }
+            if (ent > 7.4 && b.Length > 200000) { parts.Add("yuksek entropi " + Math.Round(ent, 2).ToString(CultureInfo.InvariantCulture) + " (paketlenmis/sifreli icerik olabilir)"); bonus += 15; }
+            if (parts.Count > 0) { r.PackReason = string.Join("; ", parts.ToArray()); r.PackBonus = bonus; }
+        }
+        return r;
+    }
+    public static HkBinRes[] ScanBinMany(string[] paths, string termPat, string brandPat, int threads) {
+        Regex term = Get(termPat);
+        Regex brand = Get(brandPat);
+        HkBinRes[] res = new HkBinRes[paths.Length];
+        ParallelOptions po = new ParallelOptions();
+        po.MaxDegreeOfParallelism = threads;
+        Parallel.For(0, paths.Length, po, delegate(int i) {
+            try { res[i] = ScanBin(paths[i], term, brand); } catch { res[i] = new HkBinRes(); }
+        });
+        return res;
+    }
+    public static HkBinRes[] CfgMany(string[] paths, string termPat, string brandPat, int threads) {
+        Regex term = Get(termPat);
+        Regex brand = Get(brandPat);
+        HkBinRes[] res = new HkBinRes[paths.Length];
+        ParallelOptions po = new ParallelOptions();
+        po.MaxDegreeOfParallelism = threads;
+        Parallel.For(0, paths.Length, po, delegate(int i) {
+            HkBinRes r = new HkBinRes();
+            try {
+                string ct = File.ReadAllText(paths[i]);
+                if (!string.IsNullOrEmpty(ct)) {
+                    r.Ok = true;
+                    HashSet<string> tk = new HashSet<string>();
+                    HashSet<string> bk = new HashSet<string>();
+                    Harvest(term, ct, tk);
+                    Harvest(brand, ct, bk);
+                    r.Terms = ToArr(tk);
+                    r.Brands = ToArr(bk);
+                }
+            } catch { }
+            res[i] = r;
+        });
+        return res;
+    }
+}
+'@
+$binCsOk = $false
+try {
+    if (-not ('HkBin' -as [type])) { Add-Type -TypeDefinition $binCs -Language CSharp -ErrorAction Stop }
+    $binCsOk = $true
+} catch { Log ('   UYARI: paralel icerik tarayici derlenemedi, eski sirali yola donuluyor: ' + $_.Exception.Message) 'DarkYellow' }
 $budget = [long]1610612736
 $uSw = [Diagnostics.Stopwatch]::StartNew()
 $uIdx = 0
@@ -5335,11 +6648,59 @@ function Has-Any([string]$t, [string[]]$needles, [bool]$ic = $false) {
     return $false
 }
 $uN = 0
+if ($binCsOk) {
+    $uList = New-Object System.Collections.Generic.List[object]
+    foreach ($bf in $binOrder) {
+        $pth = $bf.FullName
+        if ((Get-Zone $pth) -eq 'system') { continue }
+        if ($bf.Name.ToLower() -match $knownNat) { continue }
+        if ($bf.Length -gt 12582912 -and (Test-Signed $pth)) { continue }
+        [void]$uList.Add($bf)
+    }
+    $uArr = $uList.ToArray()
+    $uThr = [Math]::Max(2, [Math]::Min(4, [Environment]::ProcessorCount))
+    Log ('   ' + $uArr.Count + ' exe/dll paralel taraniyor (' + $uThr + ' is parcacigi, sure siniri yok)...') 'DarkGray'
+    for ($ci = 0; $ci -lt $uArr.Count; $ci += 16) {
+        $hi = [Math]::Min($ci + 15, $uArr.Count - 1)
+        $chunkP = [string[]]@($uArr[$ci..$hi] | ForEach-Object { $_.FullName })
+        $res = $null
+        try { $res = [HkBin]::ScanBinMany($chunkP, $script:ModTermPat, $script:BrandRx.ToString(), $uThr) } catch {}
+        $dn = $ci + $chunkP.Count
+        Set-Frac ($dn / [Math]::Max(1, $uArr.Count)) ('exe/dll ' + $dn + '/' + $uArr.Count)
+        if (($dn % 64) -lt 16 -or $dn -ge $uArr.Count) { Write-Host ('   exe/dll ilerleme: ' + $dn + '/' + $uArr.Count + ' (' + [int]$uSw.Elapsed.TotalSeconds + ' sn)') -ForegroundColor DarkGray }
+        if (-not $res) { continue }
+        for ($k = 0; $k -lt $chunkP.Count; $k++) {
+            $x = $res[$k]
+            if (-not $x -or -not $x.Ok) { continue }
+            $bf = $uArr[$ci + $k]
+            $pth = $bf.FullName
+            $uN++
+            $tk = @($x.Terms)
+            $bk = @($x.Brands)
+            $sc = 0
+            $why = New-Object System.Collections.Generic.List[string]
+            if ($tk.Count -ge 3) { $sc += 70 } elseif ($tk.Count -eq 2) { $sc += 50 } elseif ($tk.Count -eq 1) { $sc += 25 }
+            if ($tk.Count -gt 0) { [void]$why.Add('icerikte hile modulu stringleri: ' + ($tk -join ', ')) }
+            if ($bk.Count -gt 0) { $sc += 35; [void]$why.Add('icerikte bilinen hile istemcisi ismi: ' + ($bk -join ', ')) }
+            if ($x.Jni -and $x.Mc) { $sc += 40; [void]$why.Add('Minecraft sinif adlari + JNI/JVMTI: Java disindan oyuna baglanan program/DLL') }
+            if ($x.Inj) { $sc += 45; [void]$why.Add('enjektor belirtileri (WriteProcessMemory + uzak thread + javaw/Minecraft)') }
+            if ($x.PackReason) { $sc += $x.PackBonus; [void]$why.Add($x.PackReason) }
+            if ($sc -lt 25) { continue }
+            $sig = Test-Signed $pth
+            if ($x.PackReason -and -not $sig) { Add-ObfNote $pth $x.PackReason }
+            if ($sig -and $tk.Count -lt 3) { continue }
+            $sg = 'imzasiz'
+            if ($sig) { $sg = 'imzali' }
+            Add-F -Kaynak 'Dosya icerik taramasi (exe/dll)' -Ad $bf.Name.ToLower() -Yol $pth -Skor ([Math]::Min(100, $sc)) -Son $bf.LastWriteTime -Ilk $bf.CreationTime -Var 'Evet' -Not (($why -join '; ') + ' | ' + $sg + ' | icerik: dosyanin ham baytlari (Latin1 + UTF-16) tarandi')
+        }
+    }
+} else {
 foreach ($bf in $binOrder) {
     if (((Get-Date) - $Started).TotalSeconds -gt 540) { Log '   toplam sure 9 dakikayi asti, exe/dll icerik taramasinin kalani atlandi.' 'DarkYellow'; $script:BinSkipped = @($binOrder[$uIdx..($binOrder.Count - 1)]); break }
     if ($budget -le 0) { Log '   exe/dll okuma butcesi (1.5 GB) doldu, kalan dosyalar atlandi.' 'DarkYellow'; $script:BinSkipped = @($binOrder[$uIdx..($binOrder.Count - 1)]); break }
     if ($uSw.Elapsed.TotalSeconds -gt 300) { Log '   exe/dll icerik taramasi 300 sn sinirina ulasti, kalan dosyalar atlandi.' 'DarkYellow'; $script:BinSkipped = @($binOrder[$uIdx..($binOrder.Count - 1)]); break }
     $uIdx++
+    Set-Frac ($uIdx / [Math]::Max(1, $uTotal)) ('exe/dll ' + $uIdx + '/' + $uTotal)
     if (($uIdx % 25) -eq 0) { Write-Host ('   exe/dll ilerleme: ' + $uIdx + '/' + $uTotal + ' (' + [int]$uSw.Elapsed.TotalSeconds + ' sn)') -ForegroundColor DarkGray }
     $pth = $bf.FullName
     if ((Get-Zone $pth) -eq 'system') { continue }
@@ -5393,6 +6754,7 @@ foreach ($bf in $binOrder) {
     if ($sig) { $sg = 'imzali' }
     Add-F -Kaynak 'Dosya icerik taramasi (exe/dll)' -Ad $bf.Name.ToLower() -Yol $pth -Skor ([Math]::Min(100, $sc)) -Son $bf.LastWriteTime -Ilk $bf.CreationTime -Var 'Evet' -Not (($why -join '; ') + ' | ' + $sg + ' | icerik: dosyanin ham baytlari (Latin1 + UTF-16) tarandi')
 }
+}
 Log ('   ' + $uN + ' exe/dll icerigi okundu.') 'DarkGray'
 
 $cfN = 0
@@ -5401,6 +6763,35 @@ $cfSw = [Diagnostics.Stopwatch]::StartNew()
 $cfAll = $script:CfgCand.ToArray()
 $cfIdx = 0
 $script:CfgSkipped = @()
+if ($binCsOk) {
+    $cfPaths = [string[]]@($cfAll | ForEach-Object { $_.FullName })
+    $cfThr = [Math]::Max(2, [Math]::Min(4, [Math]::Max(2, [int]([Environment]::ProcessorCount / 2))))
+    for ($ci = 0; $ci -lt $cfPaths.Count; $ci += 64) {
+        $hi = [Math]::Min($ci + 63, $cfPaths.Count - 1)
+        $chunkP = [string[]]@($cfPaths[$ci..$hi])
+        $res = $null
+        try { $res = [HkBin]::CfgMany($chunkP, $script:ModTermPat, $script:BrandRx.ToString(), $cfThr) } catch {}
+        Set-Frac (($ci + $chunkP.Count) / [Math]::Max(1, $cfPaths.Count)) ('ayar dosyasi ' + ($ci + $chunkP.Count) + '/' + $cfPaths.Count)
+        if (-not $res) { continue }
+        for ($k = 0; $k -lt $chunkP.Count; $k++) {
+            $x = $res[$k]
+            if (-not $x -or -not $x.Ok) { continue }
+            $cf = $cfAll[$ci + $k]
+            $cfN++
+            $tk = @($x.Terms)
+            $bk = @($x.Brands)
+            if ($cf.Name -like 'TestHile*') { $cfgTestSeen = $true; Write-Host ('   [test dosyasi] ' + $cf.FullName + ' -> ' + $tk.Count + ' modul ismi bulundu') -ForegroundColor Cyan }
+            $sc = 0
+            if ($tk.Count -ge 3) { $sc = 60 } elseif ($tk.Count -eq 2) { $sc = 45 }
+            if ($bk.Count -gt 0) { $sc += 35 }
+            if ($sc -lt 35) { continue }
+            $nt = 'ayar dosyasi icinde'
+            if ($tk.Count -gt 0) { $nt = $nt + ' hile modulu isimleri: ' + ($tk -join ', ') }
+            if ($bk.Count -gt 0) { $nt = $nt + ' | istemci ismi: ' + ($bk -join ', ') }
+            Add-F -Kaynak 'Ayar dosyasi icerik taramasi' -Ad $cf.Name.ToLower() -Yol $cf.FullName -Skor ([Math]::Min(100, $sc)) -Son $cf.LastWriteTime -Ilk $cf.CreationTime -Var 'Evet' -Not ($nt + ' | hile istemcileri modul ayarlarini (acik/kapali, tus) boyle dosyalara yazar; ayri bir mesru program da olabilir')
+        }
+    }
+} else {
 foreach ($cf in $cfAll) {
     if ($cfSw.Elapsed.TotalSeconds -gt 150) { Log '   ayar dosyasi taramasi 150 sn sinirina ulasti, kalanlar atlandi.' 'DarkYellow'; $script:CfgSkipped = @($cfAll[$cfIdx..($cfAll.Count - 1)]); break }
     $cfIdx++
@@ -5423,6 +6814,7 @@ foreach ($cf in $cfAll) {
     if ($tk.Count -gt 0) { $nt = $nt + ' hile modulu isimleri: ' + ($tk -join ', ') }
     if ($bk.Count -gt 0) { $nt = $nt + ' | istemci ismi: ' + ($bk -join ', ') }
     Add-F -Kaynak 'Ayar dosyasi icerik taramasi' -Ad $cf.Name.ToLower() -Yol $cf.FullName -Skor ([Math]::Min(100, $sc)) -Son $cf.LastWriteTime -Ilk $cf.CreationTime -Var 'Evet' -Not ($nt + ' | hile istemcileri modul ayarlarini (acik/kapali, tus) boyle dosyalara yazar; ayri bir mesru program da olabilir')
+}
 }
 if (-not $cfgTestSeen) { Write-Host '   [test dosyasi] TestHile_ayar.json ayar listesinde yok (Masaustu/Indirilenler/Belgeler altinda degil, ya da koymadin).' -ForegroundColor DarkGray }
 Log ('   ' + $cfN + ' ayar/metin dosyasinin icerigi okundu.') 'DarkGray'
@@ -5513,18 +6905,17 @@ foreach ($s in ($script:Sys | Sort-Object -Property Skor -Descending)) {
 Log '' 'Gray'
 Log '--- YUKSEK GUVENLI BULGULAR ---' 'Red'
 if ($high.Count -eq 0) { Log '   Yok.' 'Green' }
-foreach ($m in ($high | Select-Object -First 40)) { Show-Item $m 'Red' }
+foreach ($m in $high) { Show-Item $m 'Red' }
 
 Log '' 'Gray'
 Log '--- ORTA GUVENLI BULGULAR ---' 'Yellow'
 if ($mid.Count -eq 0) { Log '   Yok.' 'Green' }
-foreach ($m in ($mid | Select-Object -First 25)) {
+foreach ($m in $mid) {
     $d2 = 'DURUYOR'
     if ($m.Var -eq 'Hayir') { $d2 = 'SILINMIS' }
     if ($m.Var -eq 'Bilinmiyor') { $d2 = '?' }
     Log ('   [%' + $m.Skor + '] ' + $m.Ad + ' | ' + $d2 + ' | son: ' + (Fmt $m.Son) + ' | ' + $m.Yol) 'Yellow'
 }
-if ($mid.Count -gt 25) { Log ('   ... ve ' + ($mid.Count - 25) + ' tane daha (sonda TAM LISTE bolumunde).') 'DarkGray' }
 
 Log '' 'Gray'
 Log '--- CALISTIRILIP SONRA SILINEN PROGRAMLAR (en yeniden eskiye) ---' 'Magenta'
@@ -5664,12 +7055,14 @@ if (($dBin.Count + $dCfg.Count) -gt 0) {
         $dI = 0
         foreach ($dx in $dBin) {
             $dI++
+            Set-Frac ($dI / [Math]::Max(1, $dBin.Count)) ('exe/dll (sonradan) ' + $dI + '/' + $dBin.Count)
             if (($dI % 25) -eq 0 -or $dI -eq $dBin.Count) { Write-Host ('   exe/dll (sonradan) ilerleme: ' + $dI + '/' + $dBin.Count + ' (' + [int]$dSw.Elapsed.TotalSeconds + ' sn)') -ForegroundColor DarkGray }
             try { Scan-BinDeferred $dx } catch {}
         }
         $dI = 0
         foreach ($dx in $dCfg) {
             $dI++
+            Set-Frac ($dI / [Math]::Max(1, $dCfg.Count)) ('ayar dosyasi (sonradan) ' + $dI + '/' + $dCfg.Count)
             if (($dI % 200) -eq 0 -or $dI -eq $dCfg.Count) { Write-Host ('   ayar dosyasi (sonradan) ilerleme: ' + $dI + '/' + $dCfg.Count + ' (' + [int]$dSw.Elapsed.TotalSeconds + ' sn)') -ForegroundColor DarkGray }
             try { Scan-CfgDeferred $dx } catch {}
         }
@@ -5682,6 +7075,7 @@ if (($dBin.Count + $dCfg.Count) -gt 0) {
 }
 if (($dBin.Count + $dCfg.Count) -eq 0) { Log 'Sure siniri nedeniyle atlanan dosya yok, bu yuzden atlananlari tarama sorusu cikmadi.' 'DarkGray' }
 Log '' 'Gray'
+Close-Bar
 $avAns = Read-Host 'TUM DISKTE hile avi (calistirilmamis / yeri bilinmeyen dosyalar dahil) da yapilsin mi? Birkac dakika surer (E/H)'
 if ($avAns -match '^[eE]') { Invoke-Hunt }
 if ($PSCommandPath) { Write-Host ''; Read-Host 'Bitti. Kapatmak icin Enter a bas' | Out-Null }
