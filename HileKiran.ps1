@@ -146,6 +146,7 @@ try {
 } catch {}
 # ---- Konsol ilerleme cubugu (Write-Progress): ust satirda adim ici %, altinda genel % ----
 $script:BarLast = [DateTime]::MinValue
+$script:BarPrinted = -10
 function Update-Bar([double]$frac, [string]$sub = '', [bool]$force = $false) {
     $ProgressPreference = 'Continue'
     if (-not $script:TitleOk) { return }
@@ -165,8 +166,11 @@ function Update-Bar([double]$frac, [string]$sub = '', [bool]$force = $false) {
     if ($nm.Length -gt 60) { $nm = $nm.Substring(0, 60) }
     $st = '%' + $stp
     if ($sub) { $st = '[' + $sub + ']  %' + $stp }
-    Write-Progress -Id 0 -Activity ('HileKiran genel ilerleme: %' + $all) -Status ('adim ' + $idx + '/' + $tot) -PercentComplete $all
-    Write-Progress -Id 1 -ParentId 0 -Activity $nm -Status $st -PercentComplete $stp
+    # Sabit (kaydirilinca kapatan) Write-Progress paneli kaldirildi: ilerleme satiri normal cikti gibi akar, pencere basliginda da gorunur.
+    if (-not $force -and ($all -ge ($script:BarPrinted + 2) -or $all -lt $script:BarPrinted)) {
+        $script:BarPrinted = $all
+        Write-Host ('   >> genel %' + $all + ' | adim ' + $idx + '/' + $tot + ' | ' + $nm + ' | ' + $st) -ForegroundColor DarkCyan
+    }
 }
 function Close-Bar {
     $ProgressPreference = 'Continue'
@@ -358,15 +362,21 @@ public static class HkNative {
         }, IntPtr.Zero);
         return res;
     }
+    public static uint LastStatus = 0;
+    public static string LastErr = "";
     public static byte[] Xpress(byte[] comp, uint usize) {
-        uint ws = 0; uint fw = 0;
-        if (RtlGetCompressionWorkSpaceSize(4, out ws, out fw) != 0) return null;
-        byte[] work = new byte[ws];
-        byte[] outb = new byte[usize];
-        uint fin = 0;
-        uint st = RtlDecompressBufferEx(4, outb, usize, comp, (uint)comp.Length, out fin, work);
-        if (st != 0) return null;
-        return outb;
+        try {
+            LastStatus = 0; LastErr = "";
+            uint ws = 0; uint fw = 0;
+            uint r0 = RtlGetCompressionWorkSpaceSize(4, out ws, out fw);
+            if (r0 != 0) { LastStatus = r0; LastErr = "workspace boyutu alinamadi"; return null; }
+            byte[] work = new byte[Math.Max(ws, fw)];
+            byte[] outb = new byte[usize];
+            uint fin = 0;
+            uint st = RtlDecompressBufferEx(4, outb, usize, comp, (uint)comp.Length, out fin, work);
+            if (st != 0) { LastStatus = st; LastErr = "RtlDecompressBufferEx hata verdi"; return null; }
+            return outb;
+        } catch (Exception ex) { LastErr = ex.GetType().Name + ": " + ex.Message; return null; }
     }
     public static long KeyTime(Microsoft.Win32.SafeHandles.SafeRegistryHandle h) {
         long ft = 0;
@@ -733,6 +743,10 @@ function Eval-Exec {
     }
     $benign = $false
     if (($leaf -match $script:BenignRx) -and $sc -lt 40) { $benign = $true; $sc -= 15 }
+    # Windows DISM Host Servicing Process: Windows Update/DISM her calistiginda Temp\{GUID}\dismhost.exe olusturup siler (normal)
+    if ($leaf -ieq 'dismhost.exe' -and $Path -match '(?i)\\Temp\\\{?[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}\}?\\dismhost\.exe$') {
+        if ((-not $Exists) -or (Test-Signed $Path)) { $benign = $true; $sc = [Math]::Min($sc, 10) }
+    }
     if ($sc -lt 10) { return }
     $var = 'Bilinmiyor'
     if (-not $NoLoc) { if ($Exists) { $var = 'Evet' } else { $var = 'Hayir' } }
@@ -870,18 +884,20 @@ function Inspect-File($f) {
 
 function Read-Prefetch([string]$file) {
     $res = @{ Runs = @(); Paths = @(); Exe = '' }
+    $script:PfDiag = ''
     try {
         $raw = [IO.File]::ReadAllBytes($file)
         $data = $raw
         if ($raw.Length -gt 8 -and $raw[0] -eq 0x4D -and $raw[1] -eq 0x41 -and $raw[2] -eq 0x4D) {
-            if (-not $script:HkOk) { return $res }
+            if (-not $script:HkOk) { $script:PfDiag = 'yardimci modul (HkNative) derlenmemis, sikistirilmis Prefetch acilamaz'; return $res }
             $usize = [BitConverter]::ToUInt32($raw, 4)
             $comp = New-Object byte[] ($raw.Length - 8)
             [Array]::Copy($raw, 8, $comp, 0, $comp.Length)
             $data = [HkNative]::Xpress($comp, $usize)
+            if ($null -eq $data) { $script:PfDiag = 'sikistirma acilamadi: ' + [HkNative]::LastErr + ' (durum 0x' + ([HkNative]::LastStatus).ToString('X8') + ')' }
         }
-        if ($null -eq $data -or $data.Length -lt 200) { return $res }
-        if ([Text.Encoding]::ASCII.GetString($data, 4, 4) -ne 'SCCA') { return $res }
+        if ($null -eq $data -or $data.Length -lt 200) { if (-not $script:PfDiag) { $script:PfDiag = 'dosya cok kisa/bos (' + @($data).Length + ' bayt)' }; return $res }
+        if ([Text.Encoding]::ASCII.GetString($data, 4, 4) -ne 'SCCA') { $script:PfDiag = 'SCCA imzasi yok (acilan veri Prefetch degil)'; return $res }
         $ver = [BitConverter]::ToUInt32($data, 0)
         $res.Exe = [Text.Encoding]::Unicode.GetString($data, 16, 60).Split([char]0)[0]
         $runs = @()
@@ -903,8 +919,8 @@ function Read-Prefetch([string]$file) {
         if ($so -gt 0 -and $sl -gt 0 -and ($so + $sl) -le $data.Length) {
             $s = [Text.Encoding]::Unicode.GetString($data, $so, $sl)
             $res.Paths = @($s.Split([char]0) | Where-Object { $_ })
-        }
-    } catch {}
+        } else { $script:PfDiag = 'dosya adlari bolumu bos/gecersiz (surum ' + $ver + ')' }
+    } catch { $script:PfDiag = 'istisna: ' + $_.Exception.Message }
     return $res
 }
 
@@ -4627,7 +4643,7 @@ foreach ($jpf in $jvPf) {
     $last = $jpf.LastWriteTime
     $runsTxt = ''
     Log ('   ' + $jpf.Name + ': ' + @($info.Runs).Count + ' calisma saati, ' + @($info.Paths).Count + ' dosya yolu okundu') 'DarkGray'
-    if (@($info.Paths).Count -eq 0) { Log '     (bu Prefetch dosyasindan yol okunamadi: bozuk/bos olabilir veya yardimci modul derlenmemis)' 'DarkYellow' }
+    if (@($info.Paths).Count -eq 0) { Log ('     (yol okunamadi - neden: ' + $script:PfDiag + ')') 'DarkYellow' }
     if ($info.Runs.Count -gt 0) {
         $sorted = @($info.Runs | Sort-Object -Descending)
         $last = $sorted[0]
@@ -5961,6 +5977,10 @@ $mpDir = $env:ProgramData + '\Microsoft\Windows Defender\Support'
 $mpFiles = @()
 if (-not (Test-Path -LiteralPath $mpDir)) { Log ('   Defender Support klasoru yok/erisilemiyor: ' + $mpDir + ' (Defender kapali veya baska antivirus olabilir; yonetici degilse de okunamaz)') 'DarkYellow' }
 if (Test-Path -LiteralPath $mpDir) { $mpFiles = @(Get-ChildItem -LiteralPath $mpDir -Filter 'MPLog-*.log' -File -Force -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 4) }
+if ((Test-Path -LiteralPath $mpDir) -and $mpFiles.Count -eq 0) {
+    $anyF = @(Get-ChildItem -LiteralPath $mpDir -Force -ErrorAction SilentlyContinue).Count
+    Log ('   Defender Support klasoru var ama MPLog-*.log yok (klasordeki oge sayisi: ' + $anyF + '). 0 ise yonetici degilsin ya da Defender gunlukleri kapali/temizlenmis olabilir.') 'DarkYellow'
+}
 $mpPat = '(?i)(?:\\Device\\HarddiskVolume\d+|[A-Za-z]:)\\[^\r\n"<>|*?]{3,260}?\.(?:exe|dll|jar|bat|ps1|scr|cmd|vbs|msi)(?![A-Za-z0-9])'
 $mpRx = New-Object System.Text.RegularExpressions.Regex($mpPat, [System.Text.RegularExpressions.RegexOptions]::Compiled, [TimeSpan]::FromSeconds(2))
 $mpSeen = @{}
@@ -6390,14 +6410,14 @@ foreach ($jf in $jarIter) {
     $jr = $null
     if ($jarResults.ContainsKey($jf.FullName)) { $jr = $jarResults[$jf.FullName] }
     if (-not $jr) {
-        if ($jf.Name -like 'TestHile*') { $testSeen = $true; Write-Host ('   [test dosyasi] ' + $jf.FullName + ' -> TARAMA SONUCU YOK (dosya acilamadi veya tarayici hata verdi)') -ForegroundColor Red }
+        if ($jf.Name -like 'TestHile*') { $testSeen = $true; $null = 0 }
         if ($jarCsOk) { continue }
         $jr = Deep-Jar $jf.FullName
     }
     if ($jr.Plugin) { continue }
     $tl = @($jr.Terms.Keys)
     $bl = @($jr.Brands.Keys)
-    if ($jf.Name -like 'TestHile*') { $testSeen = $true; Write-Host ('   [test dosyasi] ' + $jf.FullName + ' -> ' + $tl.Count + ' modul ismi bulundu') -ForegroundColor Cyan }
+    if ($jf.Name -like 'TestHile*') { $testSeen = $true; $null = 0 }
     $sc = 0
     $why = New-Object System.Collections.Generic.List[string]
     if ($tl.Count -ge 3) { $sc += 70 } elseif ($tl.Count -eq 2) { $sc += 55 } elseif ($tl.Count -eq 1) { $sc += 30 }
@@ -6431,7 +6451,7 @@ foreach ($ap in @($script:ArcOther)) {
         Add-F -Kaynak 'Jar/zip icerik taramasi (sifreli arsiv)' -Ad ('arsiv: ' + (Split-Path -Leaf $ap).ToLower()) -Yol $ap -Skor 35 -Var 'Evet' -Not ($er + ' | icerigi okunamadi, elle ac ve bak')
     }
 }
-if (-not $testSeen) { Write-Host '   [test dosyasi] TestHile.jar tarama listesinde yok (Masaustu/Indirilenler/Belgeler/script klasorunde degil, ya da koymadin).' -ForegroundColor DarkGray }
+if (-not $testSeen) { $null = 0 }
 Log ('   ' + $jdN + ' jar/zip dosyasinin icerigi (ic ice jar dahil) okundu.') 'DarkGray'
 Show-Section
 
@@ -6780,7 +6800,7 @@ if ($binCsOk) {
             $cfN++
             $tk = @($x.Terms)
             $bk = @($x.Brands)
-            if ($cf.Name -like 'TestHile*') { $cfgTestSeen = $true; Write-Host ('   [test dosyasi] ' + $cf.FullName + ' -> ' + $tk.Count + ' modul ismi bulundu') -ForegroundColor Cyan }
+            if ($cf.Name -like 'TestHile*') { $cfgTestSeen = $true; $null = 0 }
             $sc = 0
             if ($tk.Count -ge 3) { $sc = 60 } elseif ($tk.Count -eq 2) { $sc = 45 }
             if ($bk.Count -gt 0) { $sc += 35 }
@@ -6805,7 +6825,7 @@ foreach ($cf in $cfAll) {
     Get-Brands $ct $brands
     $tk = @($terms.Keys)
     $bk = @($brands.Keys)
-    if ($cf.Name -like 'TestHile*') { $cfgTestSeen = $true; Write-Host ('   [test dosyasi] ' + $cf.FullName + ' -> ' + $tk.Count + ' modul ismi bulundu') -ForegroundColor Cyan }
+    if ($cf.Name -like 'TestHile*') { $cfgTestSeen = $true; $null = 0 }
     $sc = 0
     if ($tk.Count -ge 3) { $sc = 60 } elseif ($tk.Count -eq 2) { $sc = 45 }
     if ($bk.Count -gt 0) { $sc += 35 }
@@ -6816,7 +6836,7 @@ foreach ($cf in $cfAll) {
     Add-F -Kaynak 'Ayar dosyasi icerik taramasi' -Ad $cf.Name.ToLower() -Yol $cf.FullName -Skor ([Math]::Min(100, $sc)) -Son $cf.LastWriteTime -Ilk $cf.CreationTime -Var 'Evet' -Not ($nt + ' | hile istemcileri modul ayarlarini (acik/kapali, tus) boyle dosyalara yazar; ayri bir mesru program da olabilir')
 }
 }
-if (-not $cfgTestSeen) { Write-Host '   [test dosyasi] TestHile_ayar.json ayar listesinde yok (Masaustu/Indirilenler/Belgeler altinda degil, ya da koymadin).' -ForegroundColor DarkGray }
+if (-not $cfgTestSeen) { $null = 0 }
 Log ('   ' + $cfN + ' ayar/metin dosyasinin icerigi okundu.') 'DarkGray'
 Show-Section
 
@@ -7036,7 +7056,7 @@ if (($dBin.Count + $dCfg.Count) -gt 0) {
         Get-Brands $ct $brands
         $tk = @($terms.Keys)
         $bk = @($brands.Keys)
-        if ($cf.Name -like 'TestHile*') { Write-Host ('   [test dosyasi] ' + $cf.FullName + ' -> ' + $tk.Count + ' modul ismi bulundu') -ForegroundColor Cyan }
+        if ($cf.Name -like 'TestHile*') { $null = 0 }
         $sc = 0
         if ($tk.Count -ge 3) { $sc = 60 } elseif ($tk.Count -eq 2) { $sc = 45 }
         if ($bk.Count -gt 0) { $sc += 35 }
